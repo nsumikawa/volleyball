@@ -142,10 +142,14 @@ async function pageTournament(id, tab) {
   const signed = (n) => (n > 0 ? '+' : '') + n;
 
   function teamsHtml() {
-    const list = data.teams.slice().sort((x, y) => (x.place || 999) - (y.place || 999) || x.rank - y.rank || x.poolName.localeCompare(y.poolName) || x.name.localeCompare(y.name));
-    if (!list.length) return '<div class="panel muted">No teams yet.</div>';
-    return `<div class="count">${plural(list.length, 'team')}</div><div class="dlist ${list.some((t) => t.place) ? '' : 'nonum'}">${list.map((t) => rowDetails('team-' + t.id,
-      `<span class="num">${t.place || ''}</span><span class="who">${esc(t.name)}</span><span class="tag">${esc(t.poolName)}</span>`,
+    if (!data.teams.length) return '<div class="panel muted">No teams yet.</div>';
+    // Numbered 1..N. Once the playoffs are over that is the final standing; until then it is the seed order:
+    // pool finish, then record, then point differential, then points scored.
+    const done = data.teams.every((t) => t.place);
+    const bySeed = (x, y) => x.rank - y.rank || y.w - x.w || y.diff - x.diff || y.pf - x.pf || x.poolName.localeCompare(y.poolName) || x.name.localeCompare(y.name);
+    const list = data.teams.slice().sort(done ? (x, y) => x.place - y.place : bySeed);
+    return `<div class="count">${plural(list.length, 'team')} · ${done ? 'final standings' : 'ranked by pool finish, record and point differential'}</div><div class="dlist">${list.map((t, i) => rowDetails('team-' + t.id,
+      `<span class="num">${i + 1}</span><span class="who">${esc(t.name)}</span><span class="tag">${esc(t.poolName)}</span>`,
       [['Pool', esc(t.poolName + (t.court ? ' · ' + t.court : ''))], ['Pool finish', ord(t.rank)], ['Record', `${t.w}–${t.l}`], ['Point diff', signed(t.diff)],
        ['Playoffs', t.bracket ? (t.bracket === 'gold' ? 'Gold' : 'Silver') : 'Not seeded yet'], ['Final place', t.place ? ord(t.place) : '—']])).join('')}</div>`;
   }
