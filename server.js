@@ -143,7 +143,9 @@ const bracketRules = (t) => ({ target: t.bTarget, winByTwo: !!t.bWinByTwo, cap: 
 const g1Target = (t) => (t.g1Target === undefined ? 15 : t.g1Target);
 const g1Cap = (t) => (t.g1Cap === undefined ? 15 : t.g1Cap);
 const goldFirstRules = (t) => ({ target: g1Target(t), winByTwo: !!t.bWinByTwo, cap: g1Cap(t) });
-const rulesFor = (t, m) => (!m.br ? poolRules(t) : (m.br === 'gold' && m.round === 1 && g1Target(t) > 0 ? goldFirstRules(t) : bracketRules(t)));
+const sCapOf = (t) => (t.sCap === undefined ? 23 : t.sCap);
+const silverRules = (t) => ({ target: t.bTarget, winByTwo: !!t.bWinByTwo, cap: sCapOf(t) });
+const rulesFor = (t, m) => (!m.br ? poolRules(t) : m.br === 'silver' ? silverRules(t) : (m.br === 'gold' && m.round === 1 && g1Target(t) > 0 ? goldFirstRules(t) : bracketRules(t)));
 const rulesText = (r) => (r.cap && r.cap <= r.target) ? `One game to ${r.target}, hard cap ${r.cap}` : `First to ${r.target}${r.winByTwo ? ', win by 2' : ''}${r.cap ? `, cap ${r.cap}` : ''}`;
 
 // A game is over when a side has reached the target and either leads by 2 (if win-by-2 is on)
@@ -361,7 +363,7 @@ function publicView(t) {
   return {
     id: t.id, name: t.name, hasPin: !!t.refPin, bracketReady: !!t.bracket,
     info: { date: t.date || '', location: t.location || '', notes: t.notes || '', startTime: t.startTime || DEFAULT_START, gameMinutes: gameMin(t) },
-    rules: { poolText: rulesText(poolRules(t)), bracketText: rulesText(bracketRules(t)), goldFirstText: g1Target(t) > 0 ? rulesText(goldFirstRules(t)) : '' },
+    rules: { poolText: rulesText(poolRules(t)), bracketText: rulesText(bracketRules(t)), silverText: rulesText(silverRules(t)), goldFirstText: g1Target(t) > 0 ? rulesText(goldFirstRules(t)) : '' },
     progress: { played: t.matches.filter((m) => m.final).length, total: t.matches.length }, goldCount: t.goldCount,
     teams: allTeams(t),
     pools: t.pools.map((p) => ({
@@ -379,7 +381,7 @@ function adminView(t) {
   v.poolSize = POOL_SIZE;
   v.settings = {
     target: t.target, winByTwo: !!t.winByTwo, cap: t.cap || 0,
-    bTarget: t.bTarget, bWinByTwo: !!t.bWinByTwo, bCap: t.bCap || 0, goldCount: t.goldCount, g1Target: g1Target(t), g1Cap: g1Cap(t),
+    bTarget: t.bTarget, bWinByTwo: !!t.bWinByTwo, bCap: t.bCap || 0, goldCount: t.goldCount, g1Target: g1Target(t), g1Cap: g1Cap(t), sCap: sCapOf(t),
     date: t.date || '', location: t.location || '', notes: t.notes || '', startTime: t.startTime || DEFAULT_START, gameMinutes: gameMin(t),
   };
   v.bracket = bracketView(t);
@@ -461,7 +463,7 @@ function generateBrackets(t, manual) {
   for (const key of ['gold', 'silver']) {
     const list = lists[key];
     if (list.length < 2) continue;
-    const { size, pairs } = arrange(list.map((e) => ({ id: e.id, pool: e.pool })), { fixed: key === 'gold' });
+    const { size, pairs } = arrange(list.map((e) => ({ id: e.id, pool: e.pool })), { fixed: true });
     const rounds = Math.round(Math.log2(size));
     out[key] = { size, rounds, seeds: list.map((e, i) => ({ seed: i + 1, id: e.id, pool: e.pool, place: e.place })) };
     pairs.forEach(([a, b], i) => out.matches.push({ id: hex(4), br: key, round: 1, idx: i, a, b, bye: !a || !b, sa: 0, sb: 0, final: false, updatedAt: null }));
@@ -671,6 +673,7 @@ async function api(req, res, pathname) {
           if (body.bTarget !== undefined) t.bTarget = parseTarget(body.bTarget, t.bTarget);
           if (body.bWinByTwo !== undefined) t.bWinByTwo = !!body.bWinByTwo;
           if (body.bCap !== undefined) t.bCap = parseCap(body.bCap, t.bTarget);
+          if (body.sCap !== undefined) t.sCap = parseCap(body.sCap, t.bTarget);
           if (body.g1Target !== undefined || body.g1Cap !== undefined) {
             const g = body.g1Target === undefined ? g1Target(t) : Number(body.g1Target);
             if (!Number.isInteger(g) || g < 0 || g > 99) throw new HttpError(400, 'Gold first round should be 0 (same as other games) or a whole number up to 99.');

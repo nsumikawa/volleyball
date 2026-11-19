@@ -122,6 +122,7 @@ async function pageTournament(id, tab) {
       ['Pool play', data.rules.poolText],
       ['Playoffs', `Top ${data.goldCount} of each pool go to Gold, everyone else to Silver. Single elimination. ${data.rules.bracketText}`],
       data.rules.goldFirstText && ['Gold first round', data.rules.goldFirstText],
+      data.rules.silverText && ['Silver bracket', data.rules.silverText],
       ['Progress', `${data.progress.played} of ${data.progress.total} pool games played`],
     ].filter(Boolean);
     return `<section class="panel"><h2>Director Notes</h2>${i.notes ? `<p class="notes">${nl2br(i.notes)}</p>` : '<p class="muted">No notes yet.</p>'}</section>
@@ -598,6 +599,7 @@ function pageAdminTournament(id) {
           <div class="row">
             <div><label for="bt">Play to</label><input type="number" id="bt" min="1" max="99" value="${t.settings.bTarget}"></div>
             <div><label for="bcap">Cap (0 = none)</label><input type="number" id="bcap" min="0" max="199" value="${t.settings.bCap}"></div>
+            <div><label for="scap">Silver cap (0 = none)</label><input type="number" id="scap" min="0" max="199" value="${t.settings.sCap}"></div>
             <div><label for="gold">Gold spots per pool</label><input type="number" id="gold" min="1" max="7" value="${t.settings.goldCount}"></div>
           </div>
           <label class="check"><input type="checkbox" id="bwb2" ${t.settings.bWinByTwo ? 'checked' : ''}> Win by 2</label>
@@ -689,7 +691,7 @@ function pageAdminTournament(id) {
       if (f.id === 'details') act('', 'PATCH', { date: $('#ddate').value, startTime: $('#dstart').value || '09:00', gameMinutes: $('#dmin').value, location: $('#dloc').value, notes: $('#dnotes').value });
       if (f.id === 'rules') act('', 'PATCH', {
         target: $('#rt').value, cap: $('#rcap').value, winByTwo: $('#rwb2').checked,
-        bTarget: $('#bt').value, bCap: $('#bcap').value, bWinByTwo: $('#bwb2').checked, g1Target: $('#g1t').value, g1Cap: $('#g1c').value,
+        bTarget: $('#bt').value, bCap: $('#bcap').value, bWinByTwo: $('#bwb2').checked, sCap: $('#scap').value, g1Target: $('#g1t').value, g1Cap: $('#g1c').value,
         goldCount: $('#gold').value, refPin: $('#rpin').value });
     }, sig);
 
