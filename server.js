@@ -463,7 +463,7 @@ function generateBrackets(t, manual) {
   for (const key of ['gold', 'silver']) {
     const list = lists[key];
     if (list.length < 2) continue;
-    const { size, pairs } = arrange(list.map((e) => ({ id: e.id, pool: e.pool })), { fixed: true });
+    const { size, pairs } = arrange(list.map((e) => ({ id: e.id, pool: e.pool })), { fixed: false });
     const rounds = Math.round(Math.log2(size));
     out[key] = { size, rounds, seeds: list.map((e, i) => ({ seed: i + 1, id: e.id, pool: e.pool, place: e.place })) };
     pairs.forEach(([a, b], i) => out.matches.push({ id: hex(4), br: key, round: 1, idx: i, a, b, bye: !a || !b, sa: 0, sb: 0, final: false, updatedAt: null }));

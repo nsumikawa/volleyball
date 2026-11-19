@@ -11,7 +11,7 @@
 // lighter penalties for same-pool teams that could meet in later rounds, plus a small
 // penalty for drifting from the standard pairing.
 
-const WEIGHTS = [0, 1000, 40, 12, 4, 1]; // by round; round 1 matters most
+const WEIGHTS = [0, 1000, 0.5, 0, 0, 0]; // round 1 same-pool games are avoided; later rounds only break ties, so pairings stay as close to the standard 1v8 / 8v9 style as possible
 
 const nextPow2 = (n) => { let p = 2; while (p < n) p *= 2; return p; };
 
