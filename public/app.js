@@ -121,6 +121,7 @@ async function pageTournament(id, tab) {
       ['Pace', `About ${i.gameMinutes} minutes per game`],
       ['Pool play', data.rules.poolText],
       ['Playoffs', `Top ${data.goldCount} of each pool go to Gold, everyone else to Silver. Single elimination. ${data.rules.bracketText}`],
+      data.rules.goldFirstText && ['Gold first round', data.rules.goldFirstText],
       ['Progress', `${data.progress.played} of ${data.progress.total} pool games played`],
     ].filter(Boolean);
     return `<section class="panel"><h2>Director Notes</h2>${i.notes ? `<p class="notes">${nl2br(i.notes)}</p>` : '<p class="muted">No notes yet.</p>'}</section>
@@ -216,7 +217,7 @@ async function pageTournament(id, tab) {
     }
     const b = bdata.brackets.find((x) => x.key === selBr) || bdata.brackets[0];
     if (selRound == null || selRound >= b.rounds.length) selRound = firstOpenRound(b);
-    const cols = b.rounds.map((r, ri) => `<div class="bcol" data-col="${ri}"><div class="bcol-title">${esc(r.name)}</div>
+    const cols = b.rounds.map((r, ri) => `<div class="bcol" data-col="${ri}"><div class="bcol-title">${esc(r.name)}${b.key === 'gold' && ri === 0 ? `<small>${esc(r.rules)}</small>` : ''}</div>
       <div class="bcol-body">${r.matches.map((m, i) => slot(m, i, ri, b.rounds.length)).join('')}</div></div>`).join('');
     return `${bdata.brackets.length > 1 ? chips(bdata.brackets.map((x) => [x.key, x.name]), b.key, 'br') : ''}
       ${b.champion ? `<div class="champ">🏆 ${esc(b.name)} champion: <b>${esc(b.champion.name)}</b></div>` : ''}
@@ -600,6 +601,12 @@ function pageAdminTournament(id) {
             <div><label for="gold">Gold spots per pool</label><input type="number" id="gold" min="1" max="7" value="${t.settings.goldCount}"></div>
           </div>
           <label class="check"><input type="checkbox" id="bwb2" ${t.settings.bWinByTwo ? 'checked' : ''}> Win by 2</label>
+          <div class="round-title">Gold first round</div>
+          <div class="row">
+            <div><label for="g1t">Play to (0 = same as other games)</label><input type="number" id="g1t" min="0" max="99" value="${t.settings.g1Target}"></div>
+            <div><label for="g1c">Cap (0 = none)</label><input type="number" id="g1c" min="0" max="199" value="${t.settings.g1Cap}"></div>
+          </div>
+          <div class="hint" style="margin:-6px 0 14px">Applies to the Gold games played before the byes: first to ${t.settings.g1Target || '…'}${t.settings.g1Cap ? ', hard cap ' + t.settings.g1Cap : ''}. Cap equal to the target means the first team to reach it wins, even 15–14.</div>
           <div class="hint" style="margin:-6px 0 14px">The top ${t.settings.goldCount} of each pool go to Gold; everyone else goes to Silver.</div>
           <div class="round-title">Referees</div>
           <div class="row">
@@ -682,7 +689,7 @@ function pageAdminTournament(id) {
       if (f.id === 'details') act('', 'PATCH', { date: $('#ddate').value, startTime: $('#dstart').value || '09:00', gameMinutes: $('#dmin').value, location: $('#dloc').value, notes: $('#dnotes').value });
       if (f.id === 'rules') act('', 'PATCH', {
         target: $('#rt').value, cap: $('#rcap').value, winByTwo: $('#rwb2').checked,
-        bTarget: $('#bt').value, bCap: $('#bcap').value, bWinByTwo: $('#bwb2').checked,
+        bTarget: $('#bt').value, bCap: $('#bcap').value, bWinByTwo: $('#bwb2').checked, g1Target: $('#g1t').value, g1Cap: $('#g1c').value,
         goldCount: $('#gold').value, refPin: $('#rpin').value });
     }, sig);
 
