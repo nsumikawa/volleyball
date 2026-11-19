@@ -266,7 +266,8 @@ a.btn, a.brand, a.ttab, a.tcard, a.mnum:hover { text-decoration: none; }
   font-family: "Dancing Script", "Snell Roundhand", "Apple Chancery", "Segoe Script", "Brush Script MT", "Lucida Handwriting", cursive;
   font-weight: 700; color: #d6247f; font-size: clamp(34px, 10.5vw, 52px); line-height: 1.1; letter-spacing: 0;
 }
-.hero .ribbon { width: 46px; height: 46px; display: block; margin: 0 auto 2px; }
+.hero .ribbon { width: 56px; height: 56px; display: block; margin: 0 auto 2px; }
+.hero .ribbon.inline { display: inline-block; width: 1.55em; height: 1.55em; vertical-align: -0.38em; margin: -0.2em 0.04em; }
 .hdate { font-weight: 800; font-size: 17px; margin-top: 8px; }
 .hloc { color: var(--muted); font-size: 15px; margin-top: 2px; }
 .ttabs { display: flex; gap: 0; overflow-x: auto; scrollbar-width: none; border-bottom: 2px solid var(--line); margin: 6px -14px 16px; padding: 0; position: sticky; top: 0; z-index: 5; background: var(--bg); -webkit-overflow-scrolling: touch; }

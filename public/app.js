@@ -1,6 +1,12 @@
 'use strict';
 
 const app = document.getElementById('app');
+const RIBBON = '<svg class="ribbon" viewBox="0 0 64 64" aria-hidden="true"><g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="7"><path d="M31 8C21 8 19 21 28 31L41 55" stroke="#e0287f"/><path d="M33 8c10 0 12 13 3 23L23 55" stroke="#f06aa6"/></g></svg>';
+// "Dig Pink ..." puts the awareness ribbon between the first two words; other names get it above the title
+const titleHtml = (name) => {
+  const m = /^(\S+)\s+(Pink)\b(.*)$/i.exec(name);
+  return m && /^dig$/i.test(m[1]) ? `${esc(m[1])}${RIBBON.replace('class="ribbon"', 'class="ribbon inline"')}${esc(m[2] + m[3])}` : esc(name);
+};
 const LOGO = '<svg viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#b0145c"/><path d="M32 11c-9 0-14 10-8 19l15 21 6-4-12-17c8-8 6-19-1-19z" fill="#fff"/><path d="M24 30l-8 21 6 2 10-17z" fill="#ffd0e3"/></svg>';
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -245,7 +251,7 @@ async function pageTournament(id, tab) {
     const i = data.info;
     const body = { info: infoHtml, teams: teamsHtml, pools: poolsHtml, games: gamesHtml, playoffs: playoffsHtml }[tab]();
     app.innerHTML = shell(`
-      <div class="hero"><svg class="ribbon" viewBox="0 0 64 64" aria-hidden="true"><g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="7"><path d="M31 8C21 8 19 21 28 31L41 55" stroke="#e0287f"/><path d="M33 8c10 0 12 13 3 23L23 55" stroke="#f06aa6"/></g></svg><h1>${esc(data.name)}</h1>${i.date ? `<div class="hdate">${esc(longDate(i.date))}</div>` : ''}${i.location ? `<div class="hloc">${esc(i.location)}</div>` : ''}</div>
+      <div class="hero">${/^dig\s+pink\b/i.test(data.name) ? '' : RIBBON}<h1>${titleHtml(data.name)}</h1>${i.date ? `<div class="hdate">${esc(longDate(i.date))}</div>` : ''}${i.location ? `<div class="hloc">${esc(i.location)}</div>` : ''}</div>
       <nav class="ttabs" aria-label="Tournament sections">${TABS.map(([k, label]) => `<a class="ttab ${k === tab ? 'on' : ''}" href="${base}/${k}" data-link>${label}</a>`).join('')}</nav>
       <div class="tbody tab-${tab}">${body}</div>`, '<a href="/" data-link>All tournaments</a>');
     if (tab === 'playoffs') { applyZoom(); if (jump) { scrollToRound(false); jump = false; } else { const sc = $('.bscroll'); if (sc) sc.scrollLeft = keep; } }
