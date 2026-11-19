@@ -477,7 +477,7 @@ function pageAdminTournament(id) {
     };
     const started = (m) => m.final || m.sa > 0 || m.sb > 0;
 
-    const openGames = new Set();
+    const openGames = new Set(['br-gold', 'br-silver']); // bracket games start expanded
     function refSelect(mid, aId, bId, ref, locked) {
       const groups = t.pools.map((p) => {
         const opts = t.teams.filter((x) => x.pool === p.id && x.id !== aId && x.id !== bId)
@@ -573,11 +573,12 @@ function pageAdminTournament(id) {
         ${b.rounds.map((r) => r.matches.filter((m) => !m.bye).map((m) => `
           <div class="amatch" data-mid="${esc(m.id)}">
             <div class="l1">
-              <span class="g" style="width:auto;min-width:34px">${esc(r.name.replace(/s$/, ''))}</span>
+              <span class="g" style="width:auto;min-width:34px">${m.num ? 'G' + m.num : ''}</span>
               <div class="vs">${esc(name(m.a))} <small>vs</small> ${esc(name(m.b))} ${m.final ? '<span class="lock">final</span>' : ''}</div>
             </div>
-            ${m.a && m.b ? `<div class="arow"><input type="number" min="0" inputmode="numeric" data-f="sa" value="${m.sa}" aria-label="score A"><span>–</span><input type="number" min="0" inputmode="numeric" data-f="sb" value="${m.sb}" aria-label="score B"><button class="btn small" data-a="setscore">Save</button><a class="btn small" href="/g/${esc(m.id)}" data-link>Open</a></div>` : ''}
-            ${m.a && m.b ? refSelect(m.id, m.a.id, m.b.id, m.ref, m.refLocked) : ''}
+            <div class="hint" style="margin:2px 0 6px">${esc(r.name.replace(/s$/, ''))}${m.time ? ' · ' + esc(m.time) : ''}${m.court ? ' · ' + esc(m.court) : ''}</div>
+            ${m.a && m.b ? `<div class="arow"><input type="number" min="0" inputmode="numeric" data-f="sa" value="${m.sa}" aria-label="score A"><span>–</span><input type="number" min="0" inputmode="numeric" data-f="sb" value="${m.sb}" aria-label="score B"><button class="btn small" data-a="setscore">Save</button><a class="btn small" href="/g/${esc(m.id)}" data-link>Open</a></div>` : '<div class="hint" style="margin:0 0 6px">Scores can be entered once both teams are decided.</div>'}
+            ${refSelect(m.id, m.a && m.a.id, m.b && m.b.id, m.ref, m.refLocked)}
           </div>`).join('')).join('')}</details>`).join('');
       return `<div class="card">
         <p style="margin:0 0 12px">${esc(status)}</p>

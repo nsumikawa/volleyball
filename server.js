@@ -873,8 +873,8 @@ async function api(req, res, pathname) {
       if (sub === 'matches' && rest[3] && method === 'PATCH') {
         const m = t.matches.find((x) => x.id === rest[3]) || (t.bracket && t.bracket.matches.find((x) => x.id === rest[3]));
         if (!m) throw new HttpError(404, 'Match not found');
-        if (m.br && (!m.a || !m.b)) throw new HttpError(409, 'That game is waiting on earlier results.');
         const body = await readBody(req);
+        if (m.br && (!m.a || !m.b) && ('sa' in body || 'sb' in body)) throw new HttpError(409, 'That game is waiting on earlier results, so it has no score yet.');
         if ('sa' in body || 'sb' in body) {
           m.sa = parseScore(body.sa); m.sb = parseScore(body.sb);
           m.final = isFinal(rulesFor(t, m), m);
