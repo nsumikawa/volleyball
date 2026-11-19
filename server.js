@@ -8,6 +8,23 @@ const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
 const { orderMatches } = require('./schedule');
+
+// Pools of five play in this fixed order, by team rank (1 = top-ranked team in the pool).
+const FIVE_TEAM_ORDER = [[2, 5], [3, 4], [1, 5], [2, 4], [1, 3], [4, 5], [2, 3], [1, 4], [3, 5], [1, 2]];
+// rank of each team in a pool: the admin's rank if set, otherwise the order the teams were added
+function teamRanks(t, poolId) {
+  const mine = t.teams.filter((x) => x.pool === poolId).map((x, i) => ({ x, i }));
+  mine.sort((a, b) => (a.x.tb || 999) - (b.x.tb || 999) || a.i - b.i);
+  return new Map(mine.map((e, k) => [e.x.id, k + 1]));
+}
+function fiveTeamSeq(t, poolId, pending) {
+  const rk = teamRanks(t, poolId);
+  const idx = (m) => {
+    const a = rk.get(m.a), b = rk.get(m.b), lo = Math.min(a, b), hi = Math.max(a, b);
+    return FIVE_TEAM_ORDER.findIndex(([x, y]) => x === lo && y === hi);
+  };
+  return pending.slice().sort((x, y) => idx(x) - idx(y));
+}
 const { arrange, roundName } = require('./bracket');
 const { assignPoolRefs } = require('./referees');
 
@@ -232,7 +249,8 @@ function syncPool(t, pool) {
   const pending = mine.filter((m) => !isStarted(m)).sort((x, y) => x.order - y.order);
   const last = started[started.length - 1];
   const prevTeams = last ? new Set([last.a, last.b]) : new Set();
-  const seq = pool.manualOrder ? pending : orderMatches(pending, prevTeams); // a hand-set order is kept; new games go last
+  // a hand-set order is kept (new games go last); pools of five follow the fixed rank order; others are spaced automatically
+  const seq = pool.manualOrder ? pending : (ids.length === 5 ? fiveTeamSeq(t, pool.id, pending) : orderMatches(pending, prevTeams));
   started.concat(seq).forEach((m, i) => { m.order = i + 1; });
   refreshPoolRefs(t, pool);
 }
@@ -598,6 +616,7 @@ for (const t of db.tournaments) {
     t.target = 21; t.cap = 21; t.winByTwo = false; t.poolFmt = 2;
     t.matches.forEach((m) => { m.final = isFinal(poolRules(t), m); });
   }
+  t.pools.forEach((p) => { if (!p.manualOrder && t.teams.filter((x) => x.pool === p.id).length === 5) syncPool(t, p); });
   maybeAutoBracket(t);
   t.pools.forEach((p) => refreshPoolRefs(t, p));
   refreshBracketRefs(t);
@@ -784,6 +803,7 @@ async function api(req, res, pathname) {
           const ids = (Array.isArray(body.order) ? body.order : []).filter((id) => inPool.some((x) => x.id === id));
           const rest2 = inPool.filter((x) => !ids.includes(x.id)).sort((x, y) => (x.tb || 999) - (y.tb || 999)).map((x) => x.id);
           [...new Set(ids), ...rest2].forEach((id, i) => { inPool.find((x) => x.id === id).tb = i + 1; });
+          if (inPool.length === 5 && !pool.manualOrder) syncPool(t, pool); // game order follows rank
           return reply();
         }
         if (pool && rest[4] === 'schedule' && method === 'POST') {

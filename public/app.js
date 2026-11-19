@@ -492,7 +492,7 @@ function pageAdminTournament(id) {
           <span class="grow"></span>
           <button class="btn small" data-a="setcourt">${pool.court ? esc(pool.court) : 'Set court'}</button>
           <button class="btn small" data-a="renamepool">Rename</button>
-          <button class="btn small" data-a="respace" title="Re-order unplayed games so teams rest between matches">Re-space games</button>
+          <button class="btn small" data-a="respace" title="Put unplayed games back in the automatic order (pools of five follow the fixed rank order)">Reset game order</button>
           <button class="btn small danger" data-a="delpool">Delete pool</button>
         </div>
         ${teams.length ? `<div class="tlist" data-pid="${esc(pool.id)}">${teams.slice().sort((x, y) => (x.tb || 999) - (y.tb || 999)).map((x, i, arr) => `
