@@ -261,7 +261,12 @@ a { text-decoration: underline; text-underline-offset: 2px; }
 a.btn, a.brand, a.ttab, a.tcard, a.mnum:hover { text-decoration: none; }
 .muted { color: var(--muted); }
 .hero { text-align: center; padding: 14px 0 12px; }
-.hero h1 { font-size: clamp(26px, 8vw, 38px); }
+@font-face { font-family: "Dancing Script"; font-weight: 700; font-style: normal; font-display: swap; src: url(/fonts/dancing-script-700.woff2) format("woff2"); }
+.hero h1 {
+  font-family: "Dancing Script", "Snell Roundhand", "Apple Chancery", "Segoe Script", "Brush Script MT", "Lucida Handwriting", cursive;
+  font-weight: 700; color: #d6247f; font-size: clamp(34px, 10.5vw, 52px); line-height: 1.1; letter-spacing: 0;
+}
+.hero .ribbon { width: 46px; height: 46px; display: block; margin: 0 auto 2px; }
 .hdate { font-weight: 800; font-size: 17px; margin-top: 8px; }
 .hloc { color: var(--muted); font-size: 15px; margin-top: 2px; }
 .ttabs { display: flex; gap: 0; overflow-x: auto; scrollbar-width: none; border-bottom: 2px solid var(--line); margin: 6px -14px 16px; padding: 0; position: sticky; top: 0; z-index: 5; background: var(--bg); -webkit-overflow-scrolling: touch; }

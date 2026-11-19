@@ -245,7 +245,7 @@ async function pageTournament(id, tab) {
     const i = data.info;
     const body = { info: infoHtml, teams: teamsHtml, pools: poolsHtml, games: gamesHtml, playoffs: playoffsHtml }[tab]();
     app.innerHTML = shell(`
-      <div class="hero"><h1>${esc(data.name)}</h1>${i.date ? `<div class="hdate">${esc(longDate(i.date))}</div>` : ''}${i.location ? `<div class="hloc">${esc(i.location)}</div>` : ''}</div>
+      <div class="hero"><svg class="ribbon" viewBox="0 0 64 64" aria-hidden="true"><g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="7"><path d="M31 8C21 8 19 21 28 31L41 55" stroke="#e0287f"/><path d="M33 8c10 0 12 13 3 23L23 55" stroke="#f06aa6"/></g></svg><h1>${esc(data.name)}</h1>${i.date ? `<div class="hdate">${esc(longDate(i.date))}</div>` : ''}${i.location ? `<div class="hloc">${esc(i.location)}</div>` : ''}</div>
       <nav class="ttabs" aria-label="Tournament sections">${TABS.map(([k, label]) => `<a class="ttab ${k === tab ? 'on' : ''}" href="${base}/${k}" data-link>${label}</a>`).join('')}</nav>
       <div class="tbody tab-${tab}">${body}</div>`, '<a href="/" data-link>All tournaments</a>');
     if (tab === 'playoffs') { applyZoom(); if (jump) { scrollToRound(false); jump = false; } else { const sc = $('.bscroll'); if (sc) sc.scrollLeft = keep; } }
