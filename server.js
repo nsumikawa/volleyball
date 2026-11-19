@@ -15,9 +15,10 @@ const FIXED_ORDERS = {
   4: [[2, 3], [1, 4], [1, 3], [2, 4], [3, 4], [1, 2]], // 1 v 2 is always the last game
 };
 // rank of each team in a pool: the admin's rank if set, otherwise the order the teams were added
+const effTb = (t, x) => x.tb || 1000 + t.teams.indexOf(x); // set by the director, otherwise after all ranked teams in the order added
 function teamRanks(t, poolId) {
   const mine = t.teams.filter((x) => x.pool === poolId).map((x, i) => ({ x, i }));
-  mine.sort((a, b) => (a.x.tb || 999) - (b.x.tb || 999) || a.i - b.i);
+  mine.sort((a, b) => effTb(t, a.x) - effTb(t, b.x));
   return new Map(mine.map((e, k) => [e.x.id, k + 1]));
 }
 function fixedSeq(t, poolId, pending, size) {
@@ -393,7 +394,7 @@ function allTeams(t) {
   for (const p of t.pools) {
     standings(t, p.id).forEach((r) => out.push({
       id: r.id, name: r.name, pool: p.id, poolName: p.name, court: courtLabel(p.court),
-      rank: r.rank, w: r.w, l: r.l, pf: r.pf, pa: r.pa, diff: r.diff, played: r.p,
+      rank: r.rank, w: r.w, l: r.l, pf: r.pf, pa: r.pa, diff: r.diff, played: r.p, tb: r.tb || 0,
       place: places[r.id] || null, bracket: inBr[r.id] || null,
     }));
   }
@@ -428,6 +429,7 @@ function adminView(t) {
   v.bracket = bracketView(t);
   v.bracketManual = !!(t.bracket && t.bracket.manual);
   v.teams = t.teams;
+  v.rankTable = allTeams(t);
   v.matches = t.matches.slice().sort((x, y) => x.order - y.order).map((m) => ({ ...matchView(t, m), pool: m.pool }));
   return v;
 }
@@ -803,9 +805,10 @@ async function api(req, res, pathname) {
         if (pool && rest[4] === 'rank' && method === 'POST') {
           const body = await readBody(req);
           const inPool = t.teams.filter((x) => x.pool === pool.id);
-          const ids = (Array.isArray(body.order) ? body.order : []).filter((id) => inPool.some((x) => x.id === id));
-          const rest2 = inPool.filter((x) => !ids.includes(x.id)).sort((x, y) => (x.tb || 999) - (y.tb || 999)).map((x) => x.id);
-          [...new Set(ids), ...rest2].forEach((id, i) => { inPool.find((x) => x.id === id).tb = i + 1; });
+          const given = [...new Set(Array.isArray(body.order) ? body.order : [])].filter((id) => inPool.some((x) => x.id === id));
+          const tail = inPool.filter((x) => !given.includes(x.id)).sort((x, y) => effTb(t, x) - effTb(t, y)).map((x) => x.id);
+          const vals = inPool.map((x) => effTb(t, x)).sort((a, b) => a - b); // the pool keeps the overall rank slots it already had
+          [...given, ...tail].forEach((id, i) => { inPool.find((x) => x.id === id).tb = vals[i]; });
           if (FIXED_ORDERS[inPool.length] && !pool.manualOrder) syncPool(t, pool); // game order follows rank
           return reply();
         }
@@ -814,6 +817,18 @@ async function api(req, res, pathname) {
           syncPool(t, pool);
           return reply();
         }
+      }
+
+      if (sub === 'teams' && rest[3] === 'rank' && method === 'POST') {
+        const body = await readBody(req);
+        if (body.reset) t.teams.forEach((x) => { delete x.tb; });
+        else {
+          const given = [...new Set(Array.isArray(body.order) ? body.order : [])].filter((id) => t.teams.some((x) => x.id === id));
+          const tail = t.teams.filter((x) => !given.includes(x.id)).sort((x, y) => effTb(t, x) - effTb(t, y)).map((x) => x.id);
+          [...given, ...tail].forEach((id, i) => { t.teams.find((x) => x.id === id).tb = i + 1; });
+        }
+        t.pools.forEach((p) => { if (FIXED_ORDERS[t.teams.filter((x) => x.pool === p.id).length] && !p.manualOrder) syncPool(t, p); });
+        return reply();
       }
 
       if (sub === 'teams' && rest[3]) {

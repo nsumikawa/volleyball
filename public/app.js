@@ -147,8 +147,9 @@ async function pageTournament(id, tab) {
     // pool finish, then record, then point differential, then points scored.
     const done = data.teams.every((t) => t.place);
     const bySeed = (x, y) => x.rank - y.rank || y.w - x.w || y.diff - x.diff || y.pf - x.pf || x.poolName.localeCompare(y.poolName) || x.name.localeCompare(y.name);
-    const list = data.teams.slice().sort(done ? (x, y) => x.place - y.place : bySeed);
-    return `<div class="count">${plural(list.length, 'team')} · ${done ? 'final standings' : 'ranked by pool finish, record and point differential'}</div><div class="dlist">${list.map((t, i) => rowDetails('team-' + t.id,
+    const manual = data.teams.some((x) => x.tb);
+    const list = data.teams.slice().sort(manual ? (x, y) => (x.tb || 1e9) - (y.tb || 1e9) || bySeed(x, y) : done ? (x, y) => x.place - y.place : bySeed);
+    return `<div class="count">${plural(list.length, 'team')} · ${manual ? 'ranked by the tournament director' : done ? 'final standings' : 'ranked by pool finish, record and point differential'}</div><div class="dlist">${list.map((t, i) => rowDetails('team-' + t.id,
       `<span class="num">${i + 1}</span><span class="who">${esc(t.name)}</span><span class="tag">${esc(t.poolName)}</span>`,
       [['Pool', esc(t.poolName + (t.court ? ' · ' + t.court : ''))], ['Pool finish', ord(t.rank)], ['Record', `${t.w}–${t.l}`], ['Point diff', signed(t.diff)],
        ['Playoffs', t.bracket ? (t.bracket === 'gold' ? 'Gold' : 'Silver') : 'Not seeded yet'], ['Final place', t.place ? ord(t.place) : '—']])).join('')}</div>`;
@@ -540,6 +541,25 @@ function pageAdminTournament(id) {
       </div>`;
     }
 
+    function rankCard() {
+      const rt = t.rankTable || [];
+      if (!rt.length) return '';
+      const manual = rt.some((x) => x.tb);
+      const bySeed = (x, y) => x.rank - y.rank || y.w - x.w || y.diff - x.diff || y.pf - x.pf || x.poolName.localeCompare(y.poolName) || x.name.localeCompare(y.name);
+      const list = rt.slice().sort(manual ? (x, y) => (x.tb || 1e9) - (y.tb || 1e9) || bySeed(x, y) : bySeed);
+      return `<div class="card">
+        <p class="hint" style="margin:0 0 6px">Drag teams (or use ▲ ▼) to rank all ${list.length} teams 1 to ${list.length}. This is the order on the public Teams tab. It also sets each team's rank inside its pool, so it decides pool ties and, in pools of four or five, the game order.</p>
+        <div class="actions" style="margin:0 0 4px"><button class="btn small" data-a="resetrank" ${manual ? '' : 'disabled'}>Reset to automatic order</button><span class="muted" style="align-self:center;font-size:14px">${manual ? 'Custom order' : 'Automatic order (pool finish, record, point diff)'}</span></div>
+        <div class="tlist" data-all="1">${list.map((x, i, arr) => `
+          <div class="trow" data-tid="${esc(x.id)}">
+            <span class="rk">${i + 1}</span>
+            <span class="tn">${esc(x.name)} <small class="muted">· ${esc(x.poolName)}</small></span>
+            <span class="drag" aria-label="Drag to re-rank ${esc(x.name)}">⠿</span>
+            <button class="btn small" data-a="rkup" aria-label="Rank higher" ${i === 0 ? 'disabled' : ''}>▲</button>
+            <button class="btn small" data-a="rkdown" aria-label="Rank lower" ${i === arr.length - 1 ? 'disabled' : ''}>▼</button>
+          </div>`).join('')}</div></div>`;
+    }
+
     function bracketCard() {
       const br = t.bracket, pr = br.progress;
       const status = br.ready
@@ -585,6 +605,9 @@ function pageAdminTournament(id) {
         <p class="hint" style="margin:-4px 0 12px">Matches are created automatically for every team in a pool. Move a team with its dropdown and both pools update.</p>
         ${t.pools.map(poolCard).join('') || '<div class="card empty">No pools yet.</div>'}
         <div class="actions"><button class="btn" data-a="addpool">+ Add a pool</button></div>
+
+        <h2>Team ranking</h2>
+        ${rankCard()}
 
         <h2>Playoff brackets</h2>
         ${bracketCard()}
@@ -652,7 +675,7 @@ function pageAdminTournament(id) {
       const done = () => {
         window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', done); window.removeEventListener('pointercancel', done);
         row.classList.remove('dragging');
-        act('/pools/' + list.dataset.pid + '/rank', 'POST', { order: [...list.querySelectorAll('.trow')].map((r) => r.dataset.tid) });
+        act(list.dataset.all ? '/teams/rank' : '/pools/' + list.dataset.pid + '/rank', 'POST', { order: [...list.querySelectorAll('.trow')].map((r) => r.dataset.tid) });
       };
       window.addEventListener('pointermove', move); window.addEventListener('pointerup', done); window.addEventListener('pointercancel', done);
     }, sig);
@@ -693,8 +716,9 @@ function pageAdminTournament(id) {
         const k = ids.indexOf(tid), n = a === 'rkup' ? k - 1 : k + 1;
         if (n < 0 || n >= ids.length) return;
         [ids[k], ids[n]] = [ids[n], ids[k]];
-        return act('/pools/' + pid + '/rank', 'POST', { order: ids });
+        return act(b.closest('.tlist').dataset.all ? '/teams/rank' : '/pools/' + pid + '/rank', 'POST', { order: ids });
       }
+      if (a === 'resetrank') return act('/teams/rank', 'POST', { reset: true });
       if ((a === 'mvup' || a === 'mvdown' || a === 'gopos') && mEl) {
         const pm = t.matches.find((x) => x.id === mEl.dataset.mid);
         if (!pm) return;
