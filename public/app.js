@@ -1,7 +1,7 @@
 'use strict';
 
 const app = document.getElementById('app');
-const LOGO = '<svg viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#1a2236"/><path d="M20 14h24v10c0 8-5 14-12 14S20 32 20 24V14z" fill="#f5b942"/><path d="M20 18h-6c0 8 3 12 8 13M44 18h6c0 8-3 12-8 13" fill="none" stroke="#f5b942" stroke-width="3" stroke-linecap="round"/><rect x="29" y="38" width="6" height="8" fill="#f5b942"/><rect x="22" y="46" width="20" height="5" rx="2" fill="#f5b942"/></svg>';
+const LOGO = '<svg viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#b0145c"/><path d="M32 11c-9 0-14 10-8 19l15 21 6-4-12-17c8-8 6-19-1-19z" fill="#fff"/><path d="M24 30l-8 21 6 2 10-17z" fill="#ffd0e3"/></svg>';
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const $ = (sel, root = app) => root.querySelector(sel);
