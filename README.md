@@ -63,6 +63,10 @@ Every game gets a suggested ref, shown on the scoreboard, bracket and game pages
 
 Built phone-first: big tap targets, sticky pool tabs, vertical bracket lists, and a scoring screen that fits portrait and landscape without scrolling. Admin game lists are collapsible.
 
+### Developing
+
+Run `./dev.sh` (same as `DEV=1 node --watch server.js`). The server restarts when its code changes and open browser pages reload when anything in `public/` changes. Use plain `node server.js` for the real tournament.
+
 ## Your data
 
 Everything lives in `data.json`. Copy it to back up or move. Older data from the first version of this app

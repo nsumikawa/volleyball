@@ -716,12 +716,31 @@ const STATIC = {
   '/favicon.svg': ['favicon.svg', 'image/svg+xml'],
 };
 
+// Dev live-reload (only with DEV=1): browsers reload when anything in public/ changes.
+const DEV = process.env.DEV === '1';
+const reloadClients = new Set();
+if (DEV) {
+  let timer = null;
+  fs.watch(PUBLIC_DIR, { recursive: true }, () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => reloadClients.forEach((r) => r.write('data: reload\n\n')), 80);
+  });
+}
+const RELOAD_SNIPPET = '<script>new EventSource("/__reload").onmessage=()=>location.reload();</script>';
+
 function serveStatic(req, res, pathname) {
+  if (DEV && pathname === '/__reload') {
+    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+    res.write(': connected\n\n');
+    reloadClients.add(res);
+    req.on('close', () => reloadClients.delete(res));
+    return;
+  }
   const entry = STATIC[pathname] || ['index.html', 'text/html; charset=utf-8'];
   fs.readFile(path.join(PUBLIC_DIR, entry[0]), (err, buf) => {
     if (err) { res.writeHead(404); return res.end('Not found'); }
     res.writeHead(200, { 'Content-Type': entry[1], 'Cache-Control': 'no-cache' });
-    res.end(buf);
+    res.end(DEV && entry[0] === 'index.html' ? buf.toString().replace('</body>', RELOAD_SNIPPET + '</body>') : buf);
   });
 }
 
