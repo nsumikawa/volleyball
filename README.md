@@ -26,7 +26,7 @@ It prints your local address, your network address, and the admin password.
 - You can fix any score by hand from the pool's game list.
 
 **Rules**
-- Pool play: one game to 21, **hard cap 21**, no win-by-2 (21–20 is final). Pool order: wins, then point differential, then head-to-head among the tied teams.
+- Pool play: one game to 21, **hard cap 21**, no win-by-2 (21–20 is final). Pool order: wins, then point differential, then head-to-head among the tied teams, then total points scored, then an admin-set coin-flip order (the "TB" button on a team).
 - Playoffs: first to 21, win by 2, **no cap**. All of these can be changed per tournament under "Rules".
 
 **Playoff brackets** (`/b/<tournament>`)

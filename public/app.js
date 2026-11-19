@@ -499,6 +499,7 @@ function pageAdminTournament(id) {
           <div class="trow" data-tid="${esc(x.id)}">
             <span class="tn">${esc(x.name)}</span>
             <select data-move aria-label="Move ${esc(x.name)} to pool">${opts(x.pool)}</select>
+            <button class="btn small" data-a="settb" title="Last-resort tiebreak (coin flip): 1 wins the tie">${x.tb ? 'TB ' + x.tb : 'TB'}</button>
             <button class="btn small" data-a="renameteam" title="Rename">✎</button>
             <button class="btn small danger" data-a="delteam" title="Remove team">✕</button>
           </div>`).join('') : '<div class="empty" style="padding:12px">No teams yet — add some below.</div>'}
@@ -653,6 +654,7 @@ function pageAdminTournament(id) {
       if (a === 'delpool' && pool) { if (confirm(`Delete ${pool.name}, its teams and its matches?`)) act('/pools/' + pid, 'DELETE'); return; }
       if (a === 'respace' && pool) return act('/pools/' + pid + '/schedule', 'POST');
       if (a === 'renameteam' && tid) { const cur = t.teams.find((x) => x.id === tid); const n = prompt('Team name', cur.name); if (n) act('/teams/' + tid, 'PATCH', { name: n }); return; }
+      if (a === 'settb' && tid) { const cur = t.teams.find((x) => x.id === tid); const n = prompt('Last-resort tiebreak for ' + cur.name + ' (coin flip). Only used if teams are still tied after record, point differential, head-to-head and points scored. 1 = ranks highest; leave blank to clear.', cur.tb || ''); if (n !== null) act('/teams/' + tid, 'PATCH', { tb: n }); return; }
       if (a === 'delteam' && tid) {
         const cur = t.teams.find((x) => x.id === tid);
         const hasScores = t.matches.some((m) => (m.a === tid || m.b === tid) && started(m));

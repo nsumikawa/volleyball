@@ -160,7 +160,7 @@ const isStarted = (m) => m.final || m.sa > 0 || m.sb > 0;
 
 function standings(t, poolId) {
   const teams = t.teams.filter((x) => x.pool === poolId);
-  const rows = new Map(teams.map((x) => [x.id, { id: x.id, name: x.name, p: 0, w: 0, l: 0, pf: 0, pa: 0 }]));
+  const rows = new Map(teams.map((x) => [x.id, { id: x.id, name: x.name, tb: x.tb || 0, p: 0, w: 0, l: 0, pf: 0, pa: 0 }]));
   for (const m of t.matches) {
     if (m.pool !== poolId || !m.final) continue;
     const A = rows.get(m.a), B = rows.get(m.b);
@@ -186,14 +186,14 @@ function standings(t, poolId) {
         A.h2hDiff += m.sa - m.sb; B.h2hDiff += m.sb - m.sa;
         if (m.sa > m.sb) A.h2hW++; else B.h2hW++;
       }
-      grp.sort((x, y) => y.h2hW - x.h2hW || y.h2hDiff - x.h2hDiff || y.pf - x.pf || x.name.localeCompare(y.name));
+      grp.sort((x, y) => y.h2hW - x.h2hW || y.h2hDiff - x.h2hDiff || y.pf - x.pf || (x.tb || 999) - (y.tb || 999) || x.name.localeCompare(y.name));
     }
     arr.push(...grp);
     i = j;
   }
   arr.forEach((r, i) => {
     const prev = arr[i - 1];
-    r.rank = prev && prev.w === r.w && prev.diff === r.diff && prev.h2hW === r.h2hW && prev.h2hDiff === r.h2hDiff && prev.pf === r.pf ? prev.rank : i + 1;
+    r.rank = prev && prev.w === r.w && prev.diff === r.diff && prev.h2hW === r.h2hW && prev.h2hDiff === r.h2hDiff && prev.pf === r.pf && (prev.tb || 999) === (r.tb || 999) ? prev.rank : i + 1;
   });
   return arr;
 }
@@ -789,6 +789,7 @@ async function api(req, res, pathname) {
         if (method === 'PATCH') {
           const body = await readBody(req);
           if (body.name !== undefined) { const n = cleanName(body.name); if (n) team.name = n; }
+          if (body.tb !== undefined) { const n = body.tb === '' || body.tb === null ? 0 : Number(body.tb); if (!Number.isInteger(n) || n < 0 || n > 99) throw new HttpError(400, 'Tiebreak order should be a whole number, or blank to clear it.'); team.tb = n; }
           if (body.pool !== undefined && body.pool !== team.pool) {
             const dest = findPool(t, body.pool);
             if (t.teams.filter((x) => x.pool === dest.id).length >= MAX_POOL) throw new HttpError(400, `A pool can hold at most ${MAX_POOL} teams.`);
