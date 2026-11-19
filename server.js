@@ -292,23 +292,24 @@ const ordinal = (n) => { const v = n % 100; return n + (['th', 'st', 'nd', 'rd']
 const courtLabel = (c) => (c ? (/^court\b/i.test(c) ? c : 'Court ' + c) : '');
 const poolTime = (t, m) => fmtTime(startMin(t) + (m.order - 1) * gameMin(t));
 
-// Bracket games run after the longest pool finishes: one round at a time, spread over the pool courts.
+// Bracket games run after the longest pool finishes. Each round is spread over the pool courts
+// (Gold games first); if a round has more games than courts, the rest wait for the next time slot.
 function bracketSlots(t) {
   const out = new Map();
   if (!t.bracket) return out;
   const longest = Math.max(0, ...t.pools.map((p) => t.matches.filter((m) => m.pool === p.id).length));
-  const base = startMin(t) + longest * gameMin(t);
+  let clock = startMin(t) + longest * gameMin(t);
   const courts = [...new Set(t.pools.map((p) => p.court).filter(Boolean))];
+  const lanes = courts.length || Math.max(1, t.pools.length);
   const maxRound = Math.max(0, ...t.bracket.matches.map((m) => m.round));
   let num = 0;
   for (let r = 1; r <= maxRound; r++) {
-    let k = 0;
-    for (const key of ['gold', 'silver']) {
-      t.bracket.matches.filter((m) => m.br === key && m.round === r && !m.bye).sort((x, y) => x.idx - y.idx).forEach((m) => {
-        out.set(m.id, { num: ++num, time: fmtTime(base + (r - 1) * gameMin(t)), court: courts.length ? courtLabel(courts[k % courts.length]) : '' });
-        k++;
-      });
-    }
+    const games = [];
+    for (const key of ['gold', 'silver']) games.push(...t.bracket.matches.filter((m) => m.br === key && m.round === r && !m.bye).sort((x, y) => x.idx - y.idx));
+    games.forEach((m, k) => {
+      out.set(m.id, { num: ++num, time: fmtTime(clock + Math.floor(k / lanes) * gameMin(t)), court: courts.length ? courtLabel(courts[k % lanes]) : '' });
+    });
+    clock += Math.ceil(games.length / lanes) * gameMin(t);
   }
   return out;
 }
