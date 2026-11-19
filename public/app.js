@@ -433,7 +433,7 @@ function pageAdminHome() {
           <div class="field"><label for="target">Play to</label><input type="number" id="target" value="21" min="1" max="99"></div>
           <div class="field"><label for="pin">Referee PIN (optional)</label><input type="text" id="pin" maxlength="20" placeholder="e.g. 4821" autocomplete="off"></div>
         </div>
-        <div class="hint" style="margin:0 0 14px">Pool play is first to the score above, win by 2, capped at 23. Playoffs: top 3 of each pool play in a Gold bracket, the rest in Silver — single elimination, first to 21, win by 2, no cap. You can change any of this after creating the tournament.</div>
+        <div class="hint" style="margin:0 0 14px">Pool play is one game to the score above with a hard cap at the same score (no win-by-2), so 21–20 is a final. Pools are ranked by record, then point differential, then head-to-head. Playoffs: top 3 of each pool play in a Gold bracket, the rest in Silver — single elimination, first to 21, win by 2, no cap. You can change any of this after creating the tournament.</div>
         <button class="btn primary" type="submit">Create tournament</button>
         <div class="err" id="err"></div>
       </form>

@@ -18,7 +18,7 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const POOL_SIZE = 5;      // teams per pool (shown in the UI as the target)
 const MAX_POOL = 8;       // hard limit the server will accept
 const DEFAULT_TARGET = 21;
-const DEFAULT_CAP = 23;       // pool play: win by 2, but the first team to 23 wins
+const DEFAULT_CAP = 21;       // pool play: one game to 21, hard cap 21, no win-by-2
 const DEFAULT_GOLD = 3;       // top N of each pool go to Gold; everyone else goes to Silver
 const APP_VERSION = '5'; // the page checks this so a stale server is reported clearly
 
@@ -102,7 +102,7 @@ function parseCap(v, target) {
   const n = Number(v);
   if (v === '' || v === null || v === undefined || n === 0) return 0;
   if (!Number.isInteger(n) || n < 1 || n > 199) throw new HttpError(400, 'Cap must be a whole number (or 0 for no cap).');
-  if (n <= target) throw new HttpError(400, 'The cap has to be higher than the play-to score.');
+  if (n < target) throw new HttpError(400, 'The cap can\'t be lower than the play-to score.');
   return n;
 }
 
@@ -169,11 +169,31 @@ function standings(t, poolId) {
     A.pf += m.sa; A.pa += m.sb; B.pf += m.sb; B.pa += m.sa;
     if (m.sa > m.sb) { A.w++; B.l++; } else { B.w++; A.l++; }
   }
-  const arr = [...rows.values()].map((r) => ({ ...r, diff: r.pf - r.pa }));
-  arr.sort((x, y) => y.w - x.w || y.diff - x.diff || y.pf - x.pf || x.name.localeCompare(y.name));
+  const base = [...rows.values()].map((r) => ({ ...r, diff: r.pf - r.pa, h2hW: 0, h2hDiff: 0 }));
+  // order: wins, then point differential; teams still tied are split by head-to-head
+  // (wins, then points, in the games played only between the tied teams)
+  base.sort((x, y) => y.w - x.w || y.diff - x.diff);
+  const arr = [];
+  for (let i = 0; i < base.length;) {
+    let j = i + 1;
+    while (j < base.length && base[j].w === base[i].w && base[j].diff === base[i].diff) j++;
+    const grp = base.slice(i, j);
+    if (grp.length > 1) {
+      const ids = new Set(grp.map((r) => r.id)), byId = new Map(grp.map((r) => [r.id, r]));
+      for (const m of t.matches) {
+        if (m.pool !== poolId || !m.final || !ids.has(m.a) || !ids.has(m.b)) continue;
+        const A = byId.get(m.a), B = byId.get(m.b);
+        A.h2hDiff += m.sa - m.sb; B.h2hDiff += m.sb - m.sa;
+        if (m.sa > m.sb) A.h2hW++; else B.h2hW++;
+      }
+      grp.sort((x, y) => y.h2hW - x.h2hW || y.h2hDiff - x.h2hDiff || y.pf - x.pf || x.name.localeCompare(y.name));
+    }
+    arr.push(...grp);
+    i = j;
+  }
   arr.forEach((r, i) => {
     const prev = arr[i - 1];
-    r.rank = prev && prev.w === r.w && prev.diff === r.diff && prev.pf === r.pf ? prev.rank : i + 1;
+    r.rank = prev && prev.w === r.w && prev.diff === r.diff && prev.h2hW === r.h2hW && prev.h2hDiff === r.h2hDiff && prev.pf === r.pf ? prev.rank : i + 1;
   });
   return arr;
 }
@@ -574,6 +594,10 @@ for (const t of db.tournaments) {
     t.bTarget = DEFAULT_TARGET; t.bWinByTwo = true; t.bCap = 0; t.goldCount = DEFAULT_GOLD;
     t.matches.forEach((m) => { m.final = isFinal(poolRules(t), m); });
   }
+  if (t.poolFmt !== 2) { // pool play became one game to 21, hard cap 21, no win-by-2 (admin can still change it)
+    t.target = 21; t.cap = 21; t.winByTwo = false; t.poolFmt = 2;
+    t.matches.forEach((m) => { m.final = isFinal(poolRules(t), m); });
+  }
   maybeAutoBracket(t);
   t.pools.forEach((p) => refreshPoolRefs(t, p));
   refreshBracketRefs(t);
@@ -643,10 +667,10 @@ async function api(req, res, pathname) {
         if (!name) throw new HttpError(400, 'Give the tournament a name.');
         const t = {
           id: slug(name) + '-' + hex(2), name, createdAt: new Date().toISOString(),
-          target: parseTarget(body.target, DEFAULT_TARGET), winByTwo: body.winByTwo !== false, cap: DEFAULT_CAP,
+          target: parseTarget(body.target, DEFAULT_TARGET), winByTwo: body.winByTwo === true, cap: DEFAULT_CAP,
           bTarget: DEFAULT_TARGET, bWinByTwo: true, bCap: 0, goldCount: DEFAULT_GOLD,
           refPin: String(body.refPin || '').trim().slice(0, 20),
-          pools: [], teams: [], matches: [], bracket: null,
+          pools: [], teams: [], matches: [], bracket: null, poolFmt: 2,
         };
         t.cap = parseCap(body.cap === undefined ? DEFAULT_CAP : body.cap, t.target);
         const count = Math.max(1, Math.min(12, parseInt(body.pools, 10) || 1));
