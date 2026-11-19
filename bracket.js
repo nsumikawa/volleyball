@@ -43,7 +43,7 @@ function sameTeamCost(pos, poolOf) {
 }
 
 // teams: [{ id, pool }] in seed order. Returns { size, pairs: [[idA|null, idB|null], ...] }
-function arrange(teams) {
+function arrange(teams, opts = {}) {
   const T = teams.length;
   const N = nextPow2(T);
   const half = N / 2;
@@ -72,7 +72,9 @@ function arrange(teams) {
   let best = tops.map((s) => N + 1 - s); // standard pairing
   let bestScore = score(best);
 
-  if (lows.length <= 8) {
+  if (opts.fixed) {
+    // fixed standard pairing (1 v lowest, ...): no same-pool shuffling
+  } else if (lows.length <= 8) {
     // brute force every way of matching top seeds to low seeds
     const cur = [], used = new Array(lows.length).fill(false);
     const rec = () => {
