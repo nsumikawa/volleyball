@@ -495,24 +495,28 @@ function pageAdminTournament(id) {
           <button class="btn small" data-a="respace" title="Re-order unplayed games so teams rest between matches">Re-space games</button>
           <button class="btn small danger" data-a="delpool">Delete pool</button>
         </div>
-        ${teams.length ? teams.map((x) => `
+        ${teams.length ? `<div class="tlist" data-pid="${esc(pool.id)}">${teams.slice().sort((x, y) => (x.tb || 999) - (y.tb || 999)).map((x, i, arr) => `
           <div class="trow" data-tid="${esc(x.id)}">
+            <span class="rk" title="Rank in this pool">${i + 1}</span>
             <span class="tn">${esc(x.name)}</span>
+            <span class="drag" title="Drag to re-rank" aria-label="Drag to re-rank ${esc(x.name)}">⠿</span>
+            <button class="btn small" data-a="rkup" aria-label="Rank higher" ${i === 0 ? 'disabled' : ''}>▲</button>
+            <button class="btn small" data-a="rkdown" aria-label="Rank lower" ${i === arr.length - 1 ? 'disabled' : ''}>▼</button>
             <select data-move aria-label="Move ${esc(x.name)} to pool">${opts(x.pool)}</select>
-            <button class="btn small" data-a="settb" title="Last-resort tiebreak (coin flip): 1 wins the tie">${x.tb ? 'TB ' + x.tb : 'TB'}</button>
             <button class="btn small" data-a="renameteam" title="Rename">✎</button>
             <button class="btn small danger" data-a="delteam" title="Remove team">✕</button>
-          </div>`).join('') : '<div class="empty" style="padding:12px">No teams yet — add some below.</div>'}
+          </div>`).join('')}</div>` : '<div class="empty" style="padding:12px">No teams yet — add some below.</div>'}
         <form class="addt row" data-pid="${esc(pool.id)}">
           <div><label>Add teams (one per line)</label><textarea rows="2" style="min-height:44px"></textarea></div>
           <button class="btn" type="submit">Add</button>
         </form>
-        ${ms.length ? `<details class="games" data-key="pool-${esc(pool.id)}" ${openGames.has('pool-' + pool.id) ? 'open' : ''}><summary>Games (${ms.length}) — in play order</summary>
+        ${ms.length ? `<details class="games" data-key="pool-${esc(pool.id)}" ${openGames.has('pool-' + pool.id) ? 'open' : ''}><summary>Games (${ms.length}) — in play order${pool.manualOrder ? ' · custom order' : ''}</summary>
           ${ms.map((m) => `
           <div class="amatch" data-mid="${esc(m.id)}">
             <div class="l1">
-              <span class="g">G${m.order}</span>
+              <button class="g gpos" data-a="gopos" title="Move this game to another spot">G${m.order}</button>
               <div class="vs">${esc(name[m.a] || '?')} <small>vs</small> ${esc(name[m.b] || '?')} ${m.final ? '<span class="lock">final</span>' : ''}</div>
+              <span class="mv"><button class="btn small" data-a="mvup" aria-label="Move game up" ${m.order === 1 ? 'disabled' : ''}>▲</button><button class="btn small" data-a="mvdown" aria-label="Move game down" ${m.order === ms.length ? 'disabled' : ''}>▼</button></span>
             </div>
             <div class="arow">
               <input type="number" min="0" inputmode="numeric" data-f="sa" value="${m.sa}" aria-label="score A">
@@ -622,6 +626,26 @@ function pageAdminTournament(id) {
     }
 
     const sig = { signal: routeAbort.signal };
+    // drag a team by its handle to re-rank it (works with a finger or a mouse)
+    app.addEventListener('pointerdown', (e) => {
+      const h = e.target.closest('.drag');
+      if (!h) return;
+      const row = h.closest('.trow'), list = row.parentElement;
+      e.preventDefault();
+      row.classList.add('dragging');
+      const move = (ev) => {
+        const rows = [...list.querySelectorAll('.trow')].filter((r) => r !== row);
+        const after = rows.find((r) => { const b = r.getBoundingClientRect(); return ev.clientY < b.top + b.height / 2; });
+        if (after) list.insertBefore(row, after); else list.appendChild(row);
+        list.querySelectorAll('.rk').forEach((n, i) => { n.textContent = i + 1; });
+      };
+      const done = () => {
+        window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', done); window.removeEventListener('pointercancel', done);
+        row.classList.remove('dragging');
+        act('/pools/' + list.dataset.pid + '/rank', 'POST', { order: [...list.querySelectorAll('.trow')].map((r) => r.dataset.tid) });
+      };
+      window.addEventListener('pointermove', move); window.addEventListener('pointerup', done); window.addEventListener('pointercancel', done);
+    }, sig);
     app.addEventListener('click', async (e) => {
       const b = e.target.closest('button[data-a]');
       if (!b) return;
@@ -654,7 +678,19 @@ function pageAdminTournament(id) {
       if (a === 'delpool' && pool) { if (confirm(`Delete ${pool.name}, its teams and its matches?`)) act('/pools/' + pid, 'DELETE'); return; }
       if (a === 'respace' && pool) return act('/pools/' + pid + '/schedule', 'POST');
       if (a === 'renameteam' && tid) { const cur = t.teams.find((x) => x.id === tid); const n = prompt('Team name', cur.name); if (n) act('/teams/' + tid, 'PATCH', { name: n }); return; }
-      if (a === 'settb' && tid) { const cur = t.teams.find((x) => x.id === tid); const n = prompt('Last-resort tiebreak for ' + cur.name + ' (coin flip). Only used if teams are still tied after record, point differential, head-to-head and points scored. 1 = ranks highest; leave blank to clear.', cur.tb || ''); if (n !== null) act('/teams/' + tid, 'PATCH', { tb: n }); return; }
+      if ((a === 'rkup' || a === 'rkdown') && tid) {
+        const ids = [...b.closest('.tlist').querySelectorAll('.trow')].map((r) => r.dataset.tid);
+        const k = ids.indexOf(tid), n = a === 'rkup' ? k - 1 : k + 1;
+        if (n < 0 || n >= ids.length) return;
+        [ids[k], ids[n]] = [ids[n], ids[k]];
+        return act('/pools/' + pid + '/rank', 'POST', { order: ids });
+      }
+      if ((a === 'mvup' || a === 'mvdown' || a === 'gopos') && mEl) {
+        const pm = t.matches.find((x) => x.id === mEl.dataset.mid);
+        if (!pm) return;
+        if (a === 'gopos') { const n = prompt(`Move game G${pm.order} to which spot? (1 to ${t.matches.filter((x) => x.pool === pm.pool).length})`, pm.order); if (n === null) return; return act('/matches/' + pm.id + '/move', 'POST', { to: n }); }
+        return act('/matches/' + pm.id + '/move', 'POST', { to: pm.order + (a === 'mvup' ? -1 : 1) });
+      }
       if (a === 'delteam' && tid) {
         const cur = t.teams.find((x) => x.id === tid);
         const hasScores = t.matches.some((m) => (m.a === tid || m.b === tid) && started(m));

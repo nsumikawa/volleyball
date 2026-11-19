@@ -419,3 +419,22 @@ a.btn, a.brand, a.ttab, a.tcard, a.mnum:hover { text-decoration: none; }
 
 .bcol-title small { display: block; font-size: 11px; font-weight: 700; letter-spacing: 0; text-transform: none; color: var(--text); }
 .bcol-title { height: 40px; align-items: flex-start; flex-direction: column; justify-content: center; }
+
+/* reordering pool games in admin */
+.amatch .gpos { background: none; border: 0; padding: 0; font: inherit; font-weight: 800; color: var(--muted); min-width: 34px; text-align: left; cursor: pointer; text-decoration: underline dotted; }
+.amatch .mv { display: flex; gap: 6px; flex: 0 0 auto; }
+.amatch .mv .btn { min-width: 40px; padding: 6px 0; }
+.amatch .mv .btn[disabled] { opacity: .3; pointer-events: none; }
+
+/* team ranking in admin */
+.trow .rk { flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-weight: 800; font-size: 13px; }
+.trow .tn { flex: 1 1 calc(100% - 44px); }
+.trow .drag { flex: 0 0 auto; min-width: 40px; text-align: center; font-size: 22px; line-height: 1; padding: 6px 0; cursor: grab; touch-action: none; user-select: none; color: var(--muted); }
+.trow .btn[disabled] { opacity: .3; pointer-events: none; }
+.trow.dragging { background: var(--bg2); box-shadow: 0 2px 10px rgba(0,0,0,.18); }
+@media (max-width: 520px) { .trow .tn { flex: 1 1 calc(100% - 44px); } }
+/* keep each team row to two lines on a phone: rank + name, then controls */
+.trow { gap: 6px; }
+.trow .btn { min-width: 38px; padding-left: 0; padding-right: 0; }
+.trow .drag { min-width: 30px; }
+.trow select { flex: 1 1 70px; min-width: 70px; max-width: none; padding-left: 8px; padding-right: 22px; }

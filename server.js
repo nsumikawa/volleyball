@@ -221,7 +221,7 @@ function syncPool(t, pool) {
   for (let i = 0; i < ids.length; i++) {
     for (let j = i + 1; j < ids.length; j++) {
       if (!seen.has(pairKey(ids[i], ids[j]))) {
-        t.matches.push({ id: hex(4), pool: pool.id, order: 0, a: ids[i], b: ids[j], sa: 0, sb: 0, final: false, updatedAt: null });
+        t.matches.push({ id: hex(4), pool: pool.id, order: 99999, a: ids[i], b: ids[j], sa: 0, sb: 0, final: false, updatedAt: null });
       }
     }
   }
@@ -232,7 +232,7 @@ function syncPool(t, pool) {
   const pending = mine.filter((m) => !isStarted(m)).sort((x, y) => x.order - y.order);
   const last = started[started.length - 1];
   const prevTeams = last ? new Set([last.a, last.b]) : new Set();
-  const seq = orderMatches(pending, prevTeams);
+  const seq = pool.manualOrder ? pending : orderMatches(pending, prevTeams); // a hand-set order is kept; new games go last
   started.concat(seq).forEach((m, i) => { m.order = i + 1; });
   refreshPoolRefs(t, pool);
 }
@@ -387,7 +387,7 @@ function publicView(t) {
     progress: { played: t.matches.filter((m) => m.final).length, total: t.matches.length }, goldCount: t.goldCount,
     teams: allTeams(t),
     pools: t.pools.map((p) => ({
-      id: p.id, name: p.name, court: courtLabel(p.court), courtRaw: p.court || '',
+      id: p.id, name: p.name, court: courtLabel(p.court), courtRaw: p.court || '', manualOrder: !!p.manualOrder,
       teams: t.teams.filter((x) => x.pool === p.id).map((x) => ({ id: x.id, name: x.name })),
       standings: standings(t, p.id),
       matches: t.matches.filter((m) => m.pool === p.id).sort((x, y) => x.order - y.order).map((m) => matchView(t, m)),
@@ -778,7 +778,16 @@ async function api(req, res, pathname) {
           addTeams(t, pool, names);
           return reply();
         }
+        if (pool && rest[4] === 'rank' && method === 'POST') {
+          const body = await readBody(req);
+          const inPool = t.teams.filter((x) => x.pool === pool.id);
+          const ids = (Array.isArray(body.order) ? body.order : []).filter((id) => inPool.some((x) => x.id === id));
+          const rest2 = inPool.filter((x) => !ids.includes(x.id)).sort((x, y) => (x.tb || 999) - (y.tb || 999)).map((x) => x.id);
+          [...new Set(ids), ...rest2].forEach((id, i) => { inPool.find((x) => x.id === id).tb = i + 1; });
+          return reply();
+        }
         if (pool && rest[4] === 'schedule' && method === 'POST') {
+          pool.manualOrder = false; // 'Re-space games' goes back to the automatic order
           syncPool(t, pool);
           return reply();
         }
@@ -805,6 +814,22 @@ async function api(req, res, pathname) {
           syncPool(t, from);
           return reply();
         }
+      }
+
+      if (sub === 'matches' && rest[3] && rest[4] === 'move' && method === 'POST') {
+        const m = t.matches.find((x) => x.id === rest[3]);
+        if (!m) throw new HttpError(404, 'Pool game not found');
+        const body = await readBody(req);
+        const pool = t.pools.find((p) => p.id === m.pool);
+        const list = t.matches.filter((x) => x.pool === m.pool).sort((x, y) => x.order - y.order);
+        const to = Math.max(1, Math.min(list.length, parseInt(body.to, 10)));
+        if (!Number.isInteger(to)) throw new HttpError(400, 'Pick a game number.');
+        list.splice(list.indexOf(m), 1);
+        list.splice(to - 1, 0, m);
+        list.forEach((x, i) => { x.order = i + 1; });
+        pool.manualOrder = true;
+        refreshPoolRefs(t, pool);
+        return reply();
       }
 
       if (sub === 'matches' && rest[3] && method === 'PATCH') {
