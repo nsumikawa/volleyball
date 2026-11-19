@@ -268,12 +268,12 @@ a.btn, a.brand, a.ttab, a.tcard, a.mnum:hover { text-decoration: none; }
 }
 .hero .ribbon { width: 56px; height: 56px; display: block; margin: 0 auto 2px; }
 .hero .ribbon.inline { display: inline-block; width: 1.55em; height: 1.55em; vertical-align: -0.38em; margin: -0.2em 0.04em; }
-.hdate { font-weight: 800; font-size: 17px; margin-top: 8px; }
-.hloc { color: var(--muted); font-size: 15px; margin-top: 2px; }
+.hdate { font-weight: 800; font-size: 17px; margin-top: 8px; color: #c81e77; }
+.hloc { color: #c81e77; font-weight: 700; font-size: 17px; margin-top: 2px; }
 .ttabs { display: flex; gap: 0; overflow-x: auto; scrollbar-width: none; border-bottom: 2px solid var(--line); margin: 6px -14px 16px; padding: 0; position: sticky; top: 0; z-index: 5; background: var(--bg); -webkit-overflow-scrolling: touch; }
 .ttabs::-webkit-scrollbar { display: none; }
-.ttab { flex: 1 0 auto; padding: 14px 8px 12px; font-weight: 700; font-size: 14.5px; color: var(--muted); border-bottom: 4px solid transparent; margin-bottom: -2px; white-space: nowrap; text-align: center; }
-.ttab.on { color: var(--navy); border-bottom-color: var(--navy); }
+.ttab { flex: 1 0 auto; padding: 14px 8px 12px; font-weight: 700; font-size: 14.5px; color: #d6247f; border-bottom: 4px solid transparent; margin-bottom: -2px; white-space: nowrap; text-align: center; }
+.ttab.on { color: #c81e77; border-bottom-color: #e0287f; font-weight: 800; }
 .panel { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px; }
 .panel h2 { margin-top: 2px; }
 .notes { line-height: 1.55; font-size: 16px; margin: 0; overflow-wrap: anywhere; }
