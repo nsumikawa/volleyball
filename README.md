@@ -59,6 +59,10 @@ Every game gets a suggested ref, shown on the scoreboard, bracket and game pages
 - **Later bracket rounds:** a team that just lost into that game. Until that's known, the ref shows as to be decided.
 - **Override:** in the admin game list, pick any team from the Ref dropdown (or "Auto" to go back to automatic).
 
+### Pages (modeled on CBVA tournament pages)
+
+Each tournament has five tabs: **Information** (director notes, schedule, format), **Teams** (tap a team for its record and final place), **Pools** (choose a pool, tap a row for details), **Games** (match cards per pool with time, court and ref) and **Playoffs** (Gold/Silver brackets with round buttons and zoom). Set the date, location, notes, first game time and minutes per game under *Event details* in the admin page, and give each pool a court with its *Set court* button. Game times are estimates: pool games run back to back on each pool's court, and playoffs start once the longest pool is done.
+
 ### Phone layout
 
 Built phone-first: big tap targets, sticky pool tabs, vertical bracket lists, and a scoring screen that fits portrait and landscape without scrolling. Admin game lists are collapsible.

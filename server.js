@@ -20,7 +20,7 @@ const MAX_POOL = 8;       // hard limit the server will accept
 const DEFAULT_TARGET = 21;
 const DEFAULT_CAP = 23;       // pool play: win by 2, but the first team to 23 wins
 const DEFAULT_GOLD = 3;       // top N of each pool go to Gold; everyone else goes to Silver
-const APP_VERSION = '4'; // the page checks this so a stale server is reported clearly
+const APP_VERSION = '5'; // the page checks this so a stale server is reported clearly
 
 // ---------- storage ----------
 let db = { config: {}, tournaments: [] };
@@ -282,15 +282,85 @@ function refreshBracketRefs(t) {
   }
 }
 
+// ---------- schedule: start time, courts, game numbers ----------
+const DEFAULT_START = '09:00', DEFAULT_GAME_MIN = 30;
+const toMin = (s) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(s || '')); return m ? Math.min(23, +m[1]) * 60 + Math.min(59, +m[2]) : 9 * 60; };
+const fmtTime = (mins) => { const x = ((mins % 1440) + 1440) % 1440; const h = Math.floor(x / 60); return `${h % 12 || 12}:${String(x % 60).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; };
+const startMin = (t) => toMin(t.startTime || DEFAULT_START);
+const gameMin = (t) => t.gameMinutes || DEFAULT_GAME_MIN;
+const ordinal = (n) => { const v = n % 100; return n + (['th', 'st', 'nd', 'rd'][(v - 20) % 10] || ['th', 'st', 'nd', 'rd'][v] || 'th'); };
+const courtLabel = (c) => (c ? (/^court\b/i.test(c) ? c : 'Court ' + c) : '');
+const poolTime = (t, m) => fmtTime(startMin(t) + (m.order - 1) * gameMin(t));
+
+// Bracket games run after the longest pool finishes: one round at a time, spread over the pool courts.
+function bracketSlots(t) {
+  const out = new Map();
+  if (!t.bracket) return out;
+  const longest = Math.max(0, ...t.pools.map((p) => t.matches.filter((m) => m.pool === p.id).length));
+  const base = startMin(t) + longest * gameMin(t);
+  const courts = [...new Set(t.pools.map((p) => p.court).filter(Boolean))];
+  const maxRound = Math.max(0, ...t.bracket.matches.map((m) => m.round));
+  let num = 0;
+  for (let r = 1; r <= maxRound; r++) {
+    let k = 0;
+    for (const key of ['gold', 'silver']) {
+      t.bracket.matches.filter((m) => m.br === key && m.round === r && !m.bye).sort((x, y) => x.idx - y.idx).forEach((m) => {
+        out.set(m.id, { num: ++num, time: fmtTime(base + (r - 1) * gameMin(t)), court: courts.length ? courtLabel(courts[k % courts.length]) : '' });
+        k++;
+      });
+    }
+  }
+  return out;
+}
+
+// Finishing place of every team that is out (or champion) in the playoffs: losers of a round with
+// R rounds to go finish 2^(R-round)+1; Silver places start after Gold.
+function teamPlaces(t) {
+  const places = {};
+  if (!t.bracket) return places;
+  const goldN = t.bracket.gold ? t.bracket.gold.seeds.length : 0;
+  for (const key of ['gold', 'silver']) {
+    const info = t.bracket[key];
+    if (!info) continue;
+    const off = key === 'gold' ? 0 : goldN;
+    for (const m of t.bracket.matches) {
+      if (m.br !== key || m.bye || !m.final) continue;
+      const winner = m.sa > m.sb ? m.a : m.b, loser = m.sa > m.sb ? m.b : m.a;
+      places[loser] = off + Math.pow(2, info.rounds - m.round) + 1;
+      if (m.round === info.rounds) places[winner] = off + 1;
+    }
+  }
+  return places;
+}
+
 // ---------- views ----------
-const matchView = (t, m) => ({ id: m.id, order: m.order, a: m.a, b: m.b, sa: m.sa, sb: m.sb, final: !!m.final, ref: refRef(t, m.ref), refLocked: !!m.refLocked });
+const matchView = (t, m) => ({ id: m.id, order: m.order, a: m.a, b: m.b, sa: m.sa, sb: m.sb, final: !!m.final, ref: refRef(t, m.ref), refLocked: !!m.refLocked,
+  time: poolTime(t, m), court: courtLabel((t.pools.find((p) => p.id === m.pool) || {}).court) });
+
+function allTeams(t) {
+  const places = teamPlaces(t);
+  const inBr = {};
+  if (t.bracket) for (const key of ['gold', 'silver']) if (t.bracket[key]) t.bracket[key].seeds.forEach((x) => { inBr[x.id] = key; });
+  const out = [];
+  for (const p of t.pools) {
+    standings(t, p.id).forEach((r) => out.push({
+      id: r.id, name: r.name, pool: p.id, poolName: p.name, court: courtLabel(p.court),
+      rank: r.rank, w: r.w, l: r.l, pf: r.pf, pa: r.pa, diff: r.diff, played: r.p,
+      place: places[r.id] || null, bracket: inBr[r.id] || null,
+    }));
+  }
+  return out;
+}
 
 function publicView(t) {
   return {
     id: t.id, name: t.name, hasPin: !!t.refPin, bracketReady: !!t.bracket,
+    info: { date: t.date || '', location: t.location || '', notes: t.notes || '', startTime: t.startTime || DEFAULT_START, gameMinutes: gameMin(t) },
     rules: { poolText: rulesText(poolRules(t)), bracketText: rulesText(bracketRules(t)) },
+    progress: { played: t.matches.filter((m) => m.final).length, total: t.matches.length }, goldCount: t.goldCount,
+    teams: allTeams(t),
     pools: t.pools.map((p) => ({
-      id: p.id, name: p.name,
+      id: p.id, name: p.name, court: courtLabel(p.court), courtRaw: p.court || '',
       teams: t.teams.filter((x) => x.pool === p.id).map((x) => ({ id: x.id, name: x.name })),
       standings: standings(t, p.id),
       matches: t.matches.filter((m) => m.pool === p.id).sort((x, y) => x.order - y.order).map((m) => matchView(t, m)),
@@ -305,6 +375,7 @@ function adminView(t) {
   v.settings = {
     target: t.target, winByTwo: !!t.winByTwo, cap: t.cap || 0,
     bTarget: t.bTarget, bWinByTwo: !!t.bWinByTwo, bCap: t.bCap || 0, goldCount: t.goldCount,
+    date: t.date || '', location: t.location || '', notes: t.notes || '', startTime: t.startTime || DEFAULT_START, gameMinutes: gameMin(t),
   };
   v.bracket = bracketView(t);
   v.bracketManual = !!(t.bracket && t.bracket.manual);
@@ -317,20 +388,23 @@ function gameView(t, m) {
   const teamName = (id) => { const x = t.teams.find((y) => y.id === id); return x ? x.name : '?'; };
   const team = (id) => (id ? { id, name: teamName(id) } : { id: null, name: 'TBD' });
   const rules = rulesFor(t, m);
+  const slot = m.br ? bracketSlots(t).get(m.id) : null;
   const base = {
     id: m.id, tournamentId: t.id, tournament: t.name, a: team(m.a), b: team(m.b), sa: m.sa, sb: m.sb, final: !!m.final,
     rulesText: rulesText(rules), needsPin: !!t.refPin, waiting: !!(m.br && (!m.a || !m.b)), ref: refRef(t, m.ref),
+    time: slot ? slot.time : poolTime(t, m),
+    court: slot ? slot.court : courtLabel((t.pools.find((p) => p.id === m.pool) || {}).court),
   };
   if (m.br) {
     const info = t.bracket[m.br];
     const inRound = t.bracket.matches.filter((x) => x.br === m.br && x.round === m.round).length;
     const rn = roundName(info.size, m.round, true);
-    return { ...base, label: `${m.br === 'gold' ? 'Gold' : 'Silver'} · ${rn}${inRound > 1 ? ' ' + (m.idx + 1) : ''}`,
-      back: `/b/${t.id}?bracket=${m.br}`, backText: 'Back to the bracket' };
+    return { ...base, num: slot ? slot.num : null, label: `${m.br === 'gold' ? 'Gold' : 'Silver'} · ${rn}${inRound > 1 ? ' ' + (m.idx + 1) : ''}`,
+      back: `/t/${t.id}/playoffs?bracket=${m.br}`, backText: 'Back' };
   }
   const pool = t.pools.find((p) => p.id === m.pool);
-  return { ...base, label: `${pool ? pool.name : ''} · Game ${m.order}`,
-    back: `/t/${t.id}?pool=${m.pool}`, backText: 'Back to standings' };
+  return { ...base, label: `${pool ? pool.name : ''}, Match ${m.order}`,
+    back: `/t/${t.id}/games?pool=${m.pool}`, backText: 'Back' };
 }
 
 // ---------- mutations ----------
@@ -440,11 +514,14 @@ function bracketView(t) {
     const info = t.bracket[key];
     if (!info) continue;
     const seedOf = Object.fromEntries(info.seeds.map((x) => [x.id, x]));
+    const slots = bracketSlots(t);
+    const off = key === 'gold' ? 0 : (t.bracket.gold ? t.bracket.gold.seeds.length : 0);
     const ref = (id) => {
       if (!id) return null;
       const team = t.teams.find((x) => x.id === id);
       const sd = seedOf[id];
-      return { id, name: team ? team.name : '?', seed: sd ? sd.seed : null, pool: sd ? tag(sd.pool) : '' };
+      const pl = sd ? t.pools.find((p) => p.id === sd.pool) : null;
+      return { id, name: team ? team.name : '?', seed: sd ? sd.seed : null, pool: sd ? tag(sd.pool) : '', from: sd && pl ? `${ordinal(sd.place)} in ${pl.name}` : '' };
     };
     const rounds = [];
     for (let r = 1; r <= info.rounds; r++) {
@@ -453,6 +530,8 @@ function bracketView(t) {
         matches: t.bracket.matches.filter((m) => m.br === key && m.round === r).sort((x, y) => x.idx - y.idx).map((m) => ({
           id: m.id, idx: m.idx, a: ref(m.a), b: ref(m.b), bye: !!m.bye, sa: m.sa, sb: m.sb, final: !!m.final,
           live: !m.final && (m.sa > 0 || m.sb > 0), ref: refRef(t, m.ref), refLocked: !!m.refLocked,
+          num: (slots.get(m.id) || {}).num || null, time: (slots.get(m.id) || {}).time || '', court: (slots.get(m.id) || {}).court || '',
+          losersFinish: m.bye ? '' : ordinal(off + Math.pow(2, info.rounds - r) + 1),
         })),
       });
     }
@@ -592,6 +671,18 @@ async function api(req, res, pathname) {
             t.goldCount = g;
           }
           if (body.refPin !== undefined) t.refPin = String(body.refPin).trim().slice(0, 20);
+          if (body.date !== undefined) t.date = /^\d{4}-\d{2}-\d{2}$/.test(String(body.date)) ? String(body.date) : '';
+          if (body.location !== undefined) t.location = String(body.location).trim().slice(0, 120);
+          if (body.notes !== undefined) t.notes = String(body.notes).slice(0, 4000);
+          if (body.startTime !== undefined) {
+            if (!/^\d{1,2}:\d{2}$/.test(String(body.startTime))) throw new HttpError(400, 'Start time should look like 09:00.');
+            t.startTime = String(body.startTime).padStart(5, '0');
+          }
+          if (body.gameMinutes !== undefined) {
+            const g = Number(body.gameMinutes);
+            if (!Number.isInteger(g) || g < 5 || g > 240) throw new HttpError(400, 'Minutes per game should be a whole number from 5 to 240.');
+            t.gameMinutes = g;
+          }
           t.matches.forEach((m) => { m.final = isFinal(poolRules(t), m); }); // rules may have changed
           if (t.bracket) { t.bracket.matches.forEach((m) => { if (!m.bye) m.final = isFinal(bracketRules(t), m); }); propagate(t); }
           return reply();
@@ -631,6 +722,7 @@ async function api(req, res, pathname) {
           if (method === 'PATCH') {
             const body = await readBody(req);
             const n = cleanName(body.name); if (n) pool.name = n;
+            if (body.court !== undefined) pool.court = cleanName(body.court).slice(0, 20);
             return reply();
           }
           if (method === 'DELETE') {
@@ -703,7 +795,7 @@ async function api(req, res, pathname) {
 
 function listTournaments() {
   return db.tournaments.slice().reverse().map((t) => ({
-    id: t.id, name: t.name, createdAt: t.createdAt,
+    id: t.id, name: t.name, createdAt: t.createdAt, date: t.date || '', location: t.location || '',
     pools: t.pools.length, teams: t.teams.length,
     matches: t.matches.length, played: t.matches.filter((m) => m.final).length,
   }));

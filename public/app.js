@@ -22,7 +22,7 @@ async function api(path, opts = {}) {
   const pw = sessionStorage.getItem('adminpw');
   if (pw) headers['x-admin-password'] = pw;
   const r = await fetch(path, { method: opts.method || 'GET', headers, body: opts.body ? JSON.stringify(opts.body) : undefined });
-  if (r.headers.get('x-app-version') !== '4') {
+  if (r.headers.get('x-app-version') !== '5') {
     const e = new Error('The server is still running an older version. Stop it (Ctrl+C in Terminal), then run  node server.js  again and refresh.');
     e.status = 0; throw e;
   }
@@ -71,9 +71,9 @@ function route() {
   const p = location.pathname.replace(/\/+$/, '') || '/';
   let m;
   if (p === '/') return pageHome();
-  if ((m = p.match(/^\/t\/([^/]+)$/))) return pageTournament(m[1]);
+  if ((m = p.match(/^\/t\/([^/]+)(?:\/([a-z]+))?$/))) return pageTournament(m[1], m[2] || '');
   if ((m = p.match(/^\/g\/([^/]+)$/))) return pageGame(m[1]);
-  if ((m = p.match(/^\/b\/([^/]+)$/))) return pageBracket(m[1]);
+  if ((m = p.match(/^\/b\/([^/]+)$/))) { history.replaceState({}, '', `/t/${m[1]}/playoffs${location.search}`); return pageTournament(m[1], 'playoffs'); }
   if (p === '/admin') return pageAdminHome();
   if ((m = p.match(/^\/admin\/t\/([^/]+)$/))) return pageAdminTournament(m[1]);
   app.innerHTML = shell('<div class="empty">Page not found.</div>');
@@ -87,7 +87,7 @@ async function pageHome() {
     const body = list.length
       ? `<div class="tlist">${list.map((t) => `
           <a class="card tcard" href="/t/${esc(t.id)}" data-link>
-            <div><div class="name">${esc(t.name)}</div><div class="meta">${plural(t.pools, 'pool')} · ${plural(t.teams, 'team')} · ${dateStr(t.createdAt)}</div></div>
+            <div><div class="name">${esc(t.name)}</div><div class="meta">${t.date ? longDate(t.date) + ' · ' : ''}${t.location ? esc(t.location) + ' · ' : ''}${plural(t.pools, 'pool')} · ${plural(t.teams, 'team')}</div></div>
             <span class="pill">${t.played}/${t.matches} played</span>
           </a>`).join('')}</div>`
       : '<div class="card empty">No tournaments yet.</div>';
@@ -95,84 +95,201 @@ async function pageHome() {
   } catch (e) { app.innerHTML = shell(`<div class="empty">${esc(e.message)}</div>`); }
 }
 
-// ---------------- public scoreboard ----------------
-function standingsTable(pool) {
-  if (!pool.standings.length) return '<div class="card empty">No teams in this pool yet.</div>';
-  const rows = pool.standings.map((r) => `
-    <tr class="${r.rank === 1 && r.p > 0 ? 'first' : ''}">
-      <td class="rank">${r.rank}</td><td class="left pname">${esc(r.name)}</td>
-      <td>${r.p}</td><td class="wl">${r.w}</td><td>${r.l}</td>
-      <td class="${r.diff > 0 ? 'pos' : r.diff < 0 ? 'neg' : ''}">${r.diff > 0 ? '+' : ''}${r.diff}</td></tr>`).join('');
-  return `<div class="table-wrap"><table>
-    <thead><tr><th>#</th><th class="left">Team</th><th>P</th><th>W</th><th>L</th><th>+/−</th></tr></thead>
-    <tbody>${rows}</tbody></table></div>
-    <p class="legend">P played · W won · L lost · +/− point difference</p>`;
-}
+// ---------------- public tournament pages (Information / Teams / Pools / Games / Playoffs) ----------------
+const TABS = [['info', 'Information'], ['teams', 'Teams'], ['pools', 'Pools'], ['games', 'Games'], ['playoffs', 'Playoffs']];
+const ord = (n) => { const v = n % 100; return n + (['th', 'st', 'nd', 'rd'][(v - 20) % 10] || ['th', 'st', 'nd', 'rd'][v] || 'th'); };
+const longDate = (d) => { if (!d) return ''; const [y, m, dd] = d.split('-').map(Number); return new Date(y, m - 1, dd).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }); };
+const clock12 = (hhmm) => { const [h, m] = String(hhmm).split(':').map(Number); return `${h % 12 || 12}:${String(m || 0).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; };
+const poolLabel = (p) => p.name + (p.court ? ' — ' + p.court : '');
+const nl2br = (s) => esc(s).replace(/\n/g, '<br>');
 
-function poolMatches(pool) {
-  if (!pool.matches.length) return '<div class="card empty">Matches appear here once the pool has at least two teams.</div>';
-  const name = Object.fromEntries(pool.teams.map((x) => [x.id, x.name]));
-  const nextId = (pool.matches.find((m) => !m.final) || {}).id;
-  return pool.matches.map((m) => {
+async function pageTournament(id, tab) {
+  if (!TABS.some((t) => t[0] === tab)) tab = '';
+  let last = '', data = null, bdata = null, jump = true;
+  const q = new URLSearchParams(location.search);
+  let selPool = q.get('pool') || sessionStorage.getItem('pool:' + id) || '';
+  let selBr = q.get('bracket') || '';
+  let selRound = null, zoom = 1;
+  const openRows = new Set();
+  const base = '/t/' + encodeURIComponent(id);
+
+  // ----- tab contents -----
+  function infoHtml() {
+    const i = data.info;
+    const rows = [
+      ['First game', clock12(i.startTime)],
+      ['Pace', `About ${i.gameMinutes} minutes per game`],
+      ['Pool play', data.rules.poolText],
+      ['Playoffs', `Top ${data.goldCount} of each pool go to Gold, everyone else to Silver. Single elimination. ${data.rules.bracketText}`],
+      ['Progress', `${data.progress.played} of ${data.progress.total} pool games played`],
+    ].filter(Boolean);
+    return `<section class="panel"><h2>Director Notes</h2>${i.notes ? `<p class="notes">${nl2br(i.notes)}</p>` : '<p class="muted">No notes yet.</p>'}</section>
+      <section class="panel"><h2>Format</h2><dl class="facts">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl></section>`;
+  }
+
+  function rowDetails(key, summary, fields) {
+    return `<details class="drow" data-key="${esc(key)}" ${openRows.has(key) ? 'open' : ''}><summary>${summary}</summary>
+      <dl class="facts">${fields.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('')}</dl></details>`;
+  }
+  const signed = (n) => (n > 0 ? '+' : '') + n;
+
+  function teamsHtml() {
+    const list = data.teams.slice().sort((x, y) => (x.place || 999) - (y.place || 999) || x.rank - y.rank || x.poolName.localeCompare(y.poolName) || x.name.localeCompare(y.name));
+    if (!list.length) return '<div class="panel muted">No teams yet.</div>';
+    return `<div class="count">${plural(list.length, 'team')}</div><div class="dlist ${list.some((t) => t.place) ? '' : 'nonum'}">${list.map((t) => rowDetails('team-' + t.id,
+      `<span class="num">${t.place || ''}</span><span class="who">${esc(t.name)}</span><span class="tag">${esc(t.poolName)}</span>`,
+      [['Pool', esc(t.poolName + (t.court ? ' · ' + t.court : ''))], ['Pool finish', ord(t.rank)], ['Record', `${t.w}–${t.l}`], ['Point diff', signed(t.diff)],
+       ['Playoffs', t.bracket ? (t.bracket === 'gold' ? 'Gold' : 'Silver') : 'Not seeded yet'], ['Final place', t.place ? ord(t.place) : '—']])).join('')}</div>`;
+  }
+
+  const chips = (items, cur, attr) => `<div class="chips">${items.map(([v, label]) => `<button class="chip ${v === cur ? 'on' : ''}" data-${attr}="${esc(v)}">${esc(label)}</button>`).join('')}</div>`;
+  const curPool = (allowAll) => (allowAll && selPool === 'all') ? null : (data.pools.find((p) => p.id === selPool) || data.pools[0]);
+
+  function poolsHtml() {
+    if (!data.pools.length) return '<div class="panel muted">No pools yet.</div>';
+    const pool = curPool(false);
+    const rows = pool.standings.map((r) => rowDetails('pr-' + r.id,
+      `<span class="num">${r.rank}</span><span class="who">${esc(r.name)}</span><span class="wl">${r.w}/${r.l}</span>`,
+      [['Played', r.p], ['Wins', r.w], ['Losses', r.l], ['Points for', r.pf], ['Points against', r.pa], ['Point diff', signed(r.diff)]])).join('');
+    return `${data.pools.length > 1 ? chips(data.pools.map((p) => [p.id, poolLabel(p)]), pool.id, 'pool') : ''}
+      <div class="phead"><h2>${esc(pool.name)}</h2><span class="muted">${plural(pool.standings.length, 'team')}</span></div>
+      ${pool.court ? `<div class="court">${esc(pool.court)}</div>` : ''}
+      ${rows ? `<div class="dtable"><div class="dhead"><span></span><span>Team</span><span>W/L</span></div>${rows}</div>
+        <p class="legend">Ranked by wins, then point differential, then points scored.</p>` : '<div class="panel muted">No teams in this pool yet.</div>'}`;
+  }
+
+  function matchCard(pool, m, nextId) {
+    const name = Object.fromEntries(pool.teams.map((x) => [x.id, x.name]));
     const live = !m.final && (m.sa > 0 || m.sb > 0);
-    const state = m.final ? 'final' : live ? 'live' : '';
-    const status = m.final ? 'Final' : live ? 'Live' : m.id === nextId ? 'Up next' : '';
-    return `<a class="match ${state}" href="/g/${esc(m.id)}" data-link>
-      <div class="mhead">
-        <span class="gnum">G${m.order}</span>
-        ${status ? `<span class="mstate ${state || 'next'}">${live ? '<span class="dot"></span>' : ''}${status}</span>` : ''}
-        ${m.ref ? `<span class="mref">Ref: <b>${esc(m.ref.name)}</b></span>` : ''}
-      </div>
-      <div class="mbody">
-        <div class="side ${m.final && m.sa > m.sb ? 'win' : ''}">${esc(name[m.a] || '?')}</div>
-        <div class="score ${m.final || live ? '' : 'todo'}">${m.final || live ? `${m.sa} – ${m.sb}` : 'VS'}</div>
-        <div class="side r ${m.final && m.sb > m.sa ? 'win' : ''}">${esc(name[m.b] || '?')}</div>
-      </div>
-    </a>`;
-  }).join('');
-}
+    const status = m.final ? '' : live ? '<span class="chip-live"><span class="dot"></span>Live</span>' : m.id === nextId ? '<span class="chip-next">Up next</span>' : '';
+    const row = (nm, sc, win, lose) => `<div class="mc-row ${win ? 'win' : ''} ${lose ? 'lose' : ''}"><span class="nm">${esc(nm)}</span><span class="sc">${m.final || live ? sc : ''}</span></div>`;
+    return `<div class="mcard ${live ? 'live' : ''}">
+      <div class="mc-head"><a class="mnum" href="/g/${esc(m.id)}" data-link>Match ${m.order}</a><span class="mtime">${esc(m.time)}</span>${status}
+        <span class="mc-ref">${m.ref ? `Ref: <b>${esc(m.ref.name)}</b>` : ''}</span></div>
+      ${row(name[m.a] || '?', m.sa, m.final && m.sa > m.sb, m.final && m.sa < m.sb)}
+      ${row(name[m.b] || '?', m.sb, m.final && m.sb > m.sa, m.final && m.sb < m.sa)}
+    </div>`;
+  }
 
-async function pageTournament(id) {
-  let last = '', data = null;
-  let sel = new URLSearchParams(location.search).get('pool');
+  function gamesHtml() {
+    if (!data.pools.length) return '<div class="panel muted">No pools yet.</div>';
+    const cur = curPool(true);
+    const shown = cur ? [cur] : data.pools;
+    const filter = data.pools.length > 1 ? chips([['all', 'All pools'], ...data.pools.map((p) => [p.id, poolLabel(p)])], cur ? cur.id : 'all', 'pool') : '';
+    return filter + shown.map((p) => {
+      const done = p.matches.filter((m) => m.final).length;
+      const nextId = (p.matches.find((m) => !m.final) || {}).id;
+      return `<section class="gpool"><div class="gp-head"><h2>${esc(poolLabel(p))}</h2>
+        <div class="gp-sub"><span>${done}/${p.matches.length} complete</span><a href="${base}/pools?pool=${esc(p.id)}" data-link>≡ Standings</a></div></div>
+        ${p.matches.length ? p.matches.map((m) => matchCard(p, m, nextId)).join('') : '<div class="panel muted">Matches appear once the pool has two teams.</div>'}</section>`;
+    }).join('');
+  }
 
+  // ----- playoffs -----
+  function bteam(x, sc, show, win, lose) {
+    if (!x) return '<div class="bt-row tbd"><span class="sd"></span><span class="tn2"><b>TBD</b></span><span class="sc"></span></div>';
+    return `<div class="bt-row ${win ? 'win' : ''} ${lose ? 'lose' : ''}"><span class="sd">${x.seed == null ? '' : x.seed}</span>
+      <span class="tn2"><b>${esc(x.name)}</b>${x.from ? `<small>${esc(x.from)}</small>` : ''}</span><span class="sc">${show ? sc : ''}</span></div>`;
+  }
+  function slot(m, i, ri, nr) {
+    const out = ri < nr - 1;
+    let inner;
+    if (m.bye) {
+      const t = m.a || m.b;
+      inner = `<div class="bgame"><div class="bcard bye">${bteam(t, '', false)}<div class="byetag">BYE</div></div></div>`;
+    } else {
+      const show = m.final || m.live;
+      inner = `<div class="bgame"><div class="bg-ref">${m.ref ? `Ref: <b>${esc(m.ref.name)}</b>` : 'Ref: to be decided'}</div>
+        <div class="bcard ${m.live ? 'live' : ''}"><div class="bg-head"><a class="mnum" href="/g/${esc(m.id)}" data-link>Game ${m.num}</a><span>${esc(m.time)}</span>${m.court ? `<span>${esc(m.court)}</span>` : ''}</div>
+          ${bteam(m.a, m.sa, show, m.final && m.sa > m.sb, m.final && m.sa < m.sb)}${bteam(m.b, m.sb, show, m.final && m.sb > m.sa, m.final && m.sb < m.sa)}</div>
+        <div class="bg-foot">Losers finish ${esc(m.losersFinish)}</div></div>`;
+    }
+    return `<div class="bslot ${ri > 0 ? 'hasin' : ''} ${out ? 'hasout' : ''}" style="--span:${1 << ri}">${inner}${out && i % 2 === 0 ? '<i class="vline"></i>' : ''}</div>`;
+  }
+  const firstOpenRound = (b) => { const i = b.rounds.findIndex((r) => r.matches.some((m) => !m.bye && !m.final)); return i < 0 ? b.rounds.length - 1 : i; };
+
+  function playoffsHtml() {
+    if (!bdata) return '<div class="panel muted">Loading…</div>';
+    if (!bdata.ready) {
+      return `<div class="panel"><p><b>${bdata.progress.played} of ${bdata.progress.total}</b> pool games played.</p>
+        <p class="muted">Brackets fill in automatically once every pool game is finished. Gold: top ${bdata.goldCount} of each pool. Silver: everyone else. Single elimination, ${esc(bdata.bracketText.toLowerCase())}.</p></div>`;
+    }
+    const b = bdata.brackets.find((x) => x.key === selBr) || bdata.brackets[0];
+    if (selRound == null || selRound >= b.rounds.length) selRound = firstOpenRound(b);
+    const cols = b.rounds.map((r, ri) => `<div class="bcol" data-col="${ri}"><div class="bcol-title">${esc(r.name)}</div>
+      <div class="bcol-body">${r.matches.map((m, i) => slot(m, i, ri, b.rounds.length)).join('')}</div></div>`).join('');
+    return `${bdata.brackets.length > 1 ? chips(bdata.brackets.map((x) => [x.key, x.name]), b.key, 'br') : ''}
+      ${b.champion ? `<div class="champ">🏆 ${esc(b.name)} champion: <b>${esc(b.champion.name)}</b></div>` : ''}
+      <div class="rounds">${b.rounds.map((r, ri) => `<button class="chip round ${ri === selRound ? 'on' : ''}" data-round="${ri}">${esc(r.name)}</button>`).join('')}</div>
+      <div class="zoombar"><button class="zbtn" data-zoom="-1" aria-label="Zoom out">−</button><button class="zbtn" data-zoom="0">Fit</button><button class="zbtn" data-zoom="1" aria-label="Zoom in">+</button></div>
+      <div class="bscroll"><div class="bz"><div class="bz-inner">${cols}</div></div></div>`;
+  }
+
+  function applyZoom() {
+    const inner = $('.bz-inner'), wrap = $('.bz');
+    if (!inner || !wrap) return;
+    inner.style.transform = `scale(${zoom})`;
+    wrap.style.width = Math.ceil(inner.scrollWidth * zoom) + 'px';
+    wrap.style.height = Math.ceil(inner.scrollHeight * zoom) + 'px';
+  }
+  function scrollToRound(smooth) {
+    const sc = $('.bscroll'), col = $(`[data-col="${selRound}"]`);
+    if (sc && col) sc.scrollTo({ left: Math.max(0, col.offsetLeft * zoom - 10), behavior: smooth ? 'smooth' : 'auto' });
+  }
+
+  // ----- page -----
   function draw() {
-    const pools = data.pools;
-    if (!pools.length) { app.innerHTML = shell(`<h1>${esc(data.name)}</h1><div class="card empty">No pools yet.</div>`, '<a href="/" data-link>All tournaments</a>'); return; }
-    const pool = pools.find((p) => p.id === sel) || pools[0];
-    const played = pools.reduce((n, p) => n + p.matches.filter((m) => m.final).length, 0);
-    const total = pools.reduce((n, p) => n + p.matches.length, 0);
+    const sc0 = $('.bscroll'), keep = sc0 ? sc0.scrollLeft : 0;
+    const i = data.info;
+    const body = { info: infoHtml, teams: teamsHtml, pools: poolsHtml, games: gamesHtml, playoffs: playoffsHtml }[tab]();
     app.innerHTML = shell(`
-      <h1>${esc(data.name)}</h1>
-      <p class="sub">Pool play: ${esc(data.rules.poolText.toLowerCase())} · ${played} of ${total} games played</p>
-      <div class="actions"><a class="btn small ${data.bracketReady ? 'primary' : ''}" href="/b/${esc(data.id)}" data-link>🏆 Playoff brackets${data.bracketReady ? '' : ' (after pool play)'}</a></div>
-      ${pools.length > 1 ? `<div class="tabs">${pools.map((p) => `<button class="tab ${p.id === pool.id ? 'on' : ''}" data-pool="${esc(p.id)}">${esc(p.name)}</button>`).join('')}</div>` : ''}
-      <h2>${esc(pool.name)} standings</h2>${standingsTable(pool)}
-      <h2>${esc(pool.name)} matches</h2><div class="mlist">${poolMatches(pool)}</div>
-      <p class="hint">Tap a match to open its scoreboard.</p>`, '<a href="/" data-link>All tournaments</a>');
+      <div class="hero"><h1>${esc(data.name)}</h1>${i.date ? `<div class="hdate">${esc(longDate(i.date))}</div>` : ''}${i.location ? `<div class="hloc">${esc(i.location)}</div>` : ''}</div>
+      <nav class="ttabs" aria-label="Tournament sections">${TABS.map(([k, label]) => `<a class="ttab ${k === tab ? 'on' : ''}" href="${base}/${k}" data-link>${label}</a>`).join('')}</nav>
+      <div class="tbody tab-${tab}">${body}</div>`, '<a href="/" data-link>All tournaments</a>');
+    if (tab === 'playoffs') { applyZoom(); if (jump) { scrollToRound(false); jump = false; } else { const sc = $('.bscroll'); if (sc) sc.scrollLeft = keep; } }
   }
 
   async function load(first) {
     try {
       data = await api('/api/t/' + encodeURIComponent(id));
-      const sig = JSON.stringify(data);
+      if (tab === 'playoffs') bdata = await api('/api/b/' + encodeURIComponent(id));
+      const sig = JSON.stringify([data, bdata]);
       if (sig === last) return;
       last = sig; draw();
-    } catch (e) {
-      if (first) app.innerHTML = shell(`<div class="card empty">${esc(e.message)}</div>`);
-    }
+    } catch (e) { if (first) app.innerHTML = shell(`<div class="card empty">${esc(e.message)}</div>`, '<a href="/" data-link>All tournaments</a>'); }
   }
 
   app.addEventListener('click', (e) => {
-    const b = e.target.closest('button[data-pool]');
-    if (!b || !data) return;
-    sel = b.dataset.pool;
-    history.replaceState({}, '', `${location.pathname}?pool=${encodeURIComponent(sel)}`);
-    draw();
+    if (!data) return;
+    const el = e.target.closest('button[data-pool],button[data-br],button[data-round],button[data-zoom]');
+    if (!el) return;
+    if (el.dataset.pool !== undefined) {
+      selPool = el.dataset.pool; sessionStorage.setItem('pool:' + id, selPool);
+      history.replaceState({}, '', `${location.pathname}?pool=${encodeURIComponent(selPool)}`); draw();
+    } else if (el.dataset.br !== undefined) {
+      selBr = el.dataset.br; selRound = null; jump = true;
+      history.replaceState({}, '', `${location.pathname}?bracket=${encodeURIComponent(selBr)}`); draw();
+    } else if (el.dataset.round !== undefined) {
+      selRound = Number(el.dataset.round);
+      app.querySelectorAll('.round').forEach((c) => c.classList.toggle('on', c === el));
+      scrollToRound(true);
+    } else {
+      const d = Number(el.dataset.zoom), sc = $('.bscroll'), inner = $('.bz-inner');
+      zoom = d === 0 ? Math.max(0.35, Math.min(1, (sc.clientWidth - 4) / inner.scrollWidth)) : Math.max(0.35, Math.min(1.6, +(zoom + d * 0.2).toFixed(2)));
+      applyZoom(); if (d === 0) sc.scrollLeft = 0; else scrollToRound(false);
+    }
   }, { signal: routeAbort.signal });
+  app.addEventListener('toggle', (e) => {
+    const d = e.target;
+    if (d && d.matches && d.matches('details[data-key]')) { if (d.open) openRows.add(d.dataset.key); else openRows.delete(d.dataset.key); }
+  }, { capture: true, signal: routeAbort.signal });
 
   app.innerHTML = shell('<div class="empty">Loading…</div>');
   await load(true);
+  if (!tab && data) { // no tab in the address: open Information when the director left notes, otherwise Pools
+    tab = (data.info.notes || data.info.date || data.info.location) ? 'info' : 'pools';
+    history.replaceState({}, '', `${base}/${tab}${location.search}`); last = ''; await load(false);
+  }
   pollTimer = setInterval(() => load(false), 4000);
 }
 
@@ -192,6 +309,7 @@ async function pageGame(mid) {
   app.innerHTML = shell(`
     <div class="gm">
       <div class="gm-meta" id="meta"></div>
+      <div class="gm-rules" id="grules"></div>
       <div class="gm-ref" id="gref"></div>
       <div class="gm-board">
         ${['a', 'b'].map((s) => `
@@ -215,8 +333,10 @@ async function pageGame(mid) {
 
   function paint(g) {
     d = { ...d, ...g };
-    $('#meta').textContent = `${d.label} · ${d.rulesText}`;
-    $('#gref').innerHTML = d.ref ? `Referee: <b>${esc(d.ref.name)}</b>` : '';
+    $('#meta').innerHTML = `<span class="gm-title">${esc(d.num ? `Game ${d.num} · ${d.label}` : d.label)}</span>
+      <span class="gm-sub">${[d.court, d.time].filter(Boolean).map(esc).join(' · ')}</span>`;
+    $('#grules').textContent = d.rulesText;
+    $('#gref').innerHTML = d.ref ? `Refs: <b>${esc(d.ref.name)}</b>` : '';
     $('#team-a').textContent = d.a.name; $('#team-b').textContent = d.b.name;
     $('#sc-a').textContent = d.sa; $('#sc-b').textContent = d.sb;
     const winner = d.final ? (d.sa > d.sb ? d.a : d.b) : null;
@@ -272,72 +392,6 @@ async function pageGame(mid) {
   }, 3000);
 }
 
-// ---------------- bracket page ----------------
-async function pageBracket(id) {
-  let last = '', data = null;
-  let sel = new URLSearchParams(location.search).get('bracket');
-
-  const team = (x, sa, sb, final, side) => {
-    if (!x) return '<div class="bt tbd"><span class="bn">TBD</span></div>';
-    const win = final && (side === 'a' ? sa > sb : sb > sa);
-    const lose = final && !win;
-    return `<div class="bt ${win ? 'win' : ''} ${lose ? 'lose' : ''}"><span class="seed">${x.seed == null ? '' : x.seed}</span><span class="bn">${esc(x.name)}</span><span class="bpool">${esc(x.pool)}</span><span class="bs">${final || sa || sb ? (side === 'a' ? sa : sb) : ''}</span></div>`;
-  };
-
-  function bracketHtml(b) {
-    const cols = b.rounds.map((r) => `
-      <div class="bcol"><div class="bcol-title">${esc(r.name)}</div><div class="bcol-body">
-        ${r.matches.map((m) => {
-          if (m.bye) {
-            const t = m.a || m.b;
-            return `<div class="bm bye"><div class="bt"><span class="seed">${t.seed}</span><span class="bn">${esc(t.name)}</span><span class="bpool">${esc(t.pool)}</span><span class="bs bye-tag">BYE</span></div></div>`;
-          }
-          return `<a class="bm ${m.live ? 'live' : ''} ${m.final ? 'done' : ''}" href="/g/${esc(m.id)}" data-link>
-            ${team(m.a, m.sa, m.sb, m.final, 'a')}${team(m.b, m.sa, m.sb, m.final, 'b')}
-            <div class="bref">${m.ref ? `Ref: <b>${esc(m.ref.name)}</b>` : 'Ref: to be decided'}</div></a>`;
-        }).join('')}
-      </div></div>`).join('');
-    return `${b.champion ? `<div class="champ">🏆 ${esc(b.name)} champion: <b>${esc(b.champion.name)}</b></div>` : ''}
-      <div class="bracket-scroll"><div class="bracket">${cols}</div></div>`;
-  }
-
-  function draw() {
-    const crumbs = `<a href="/t/${esc(data.id)}" data-link>Pool standings</a>`;
-    if (!data.ready) {
-      app.innerHTML = shell(`<h1>${esc(data.name)} — Playoffs</h1>
-        <div class="card empty">Brackets fill in automatically once every pool game is finished.<br><b>${data.progress.played} of ${data.progress.total}</b> pool games played.<br><br>
-        Gold: top ${data.goldCount} of each pool · Silver: everyone else · single elimination, ${esc(data.bracketText.toLowerCase())}.</div>`, crumbs);
-      return;
-    }
-    const b = data.brackets.find((x) => x.key === sel) || data.brackets[0];
-    app.innerHTML = shell(`<h1>${esc(data.name)} — Playoffs</h1>
-      <p class="sub">Single elimination · ${esc(data.bracketText.toLowerCase())}. Tap a game to open its scoreboard.</p>
-      ${data.brackets.length > 1 ? `<div class="tabs">${data.brackets.map((x) => `<button class="tab ${x.key === b.key ? 'on' : ''}" data-br="${x.key}">${esc(x.name)}</button>`).join('')}</div>` : ''}
-      ${b ? bracketHtml(b) : '<div class="card empty">No bracket yet.</div>'}`, crumbs);
-  }
-
-  async function load(first) {
-    try {
-      data = await api('/api/b/' + encodeURIComponent(id));
-      const sig = JSON.stringify(data);
-      if (sig === last) return;
-      last = sig; draw();
-    } catch (e) { if (first) app.innerHTML = shell(`<div class="card empty">${esc(e.message)}</div>`); }
-  }
-
-  app.addEventListener('click', (e) => {
-    const b = e.target.closest('button[data-br]');
-    if (!b || !data) return;
-    sel = b.dataset.br;
-    history.replaceState({}, '', `${location.pathname}?bracket=${encodeURIComponent(sel)}`);
-    draw();
-  }, { signal: routeAbort.signal });
-
-  app.innerHTML = shell('<div class="empty">Loading…</div>');
-  await load(true);
-  pollTimer = setInterval(() => load(false), 4000);
-}
-
 // ---------------- admin ----------------
 function adminLogin(message) {
   app.innerHTML = shell(`
@@ -384,7 +438,7 @@ function pageAdminHome() {
       <h2>Your tournaments</h2>
       ${list.length ? `<div class="tlist">${list.map((t) => `
         <a class="card tcard" href="/admin/t/${esc(t.id)}" data-link>
-          <div><div class="name">${esc(t.name)}</div><div class="meta">${plural(t.pools, 'pool')} · ${plural(t.teams, 'team')} · ${dateStr(t.createdAt)}</div></div>
+          <div><div class="name">${esc(t.name)}</div><div class="meta">${t.date ? longDate(t.date) + ' · ' : ''}${t.location ? esc(t.location) + ' · ' : ''}${plural(t.pools, 'pool')} · ${plural(t.teams, 'team')}</div></div>
           <span class="pill">${t.played}/${t.matches} played</span></a>`).join('')}</div>` : '<div class="card empty">Nothing yet.</div>'}
       <p class="hint" style="margin-top:24px"><a href="#" id="signout">Sign out</a></p>`, '<a href="/" data-link>Public scoreboard</a>');
 
@@ -434,6 +488,7 @@ function pageAdminTournament(id) {
           <h3>${esc(pool.name)}</h3>
           <span class="pill ${count > t.poolSize ? 'warn' : count === t.poolSize ? 'full' : ''}">${count}/${t.poolSize} teams</span>
           <span class="grow"></span>
+          <button class="btn small" data-a="setcourt">${pool.court ? esc(pool.court) : 'Set court'}</button>
           <button class="btn small" data-a="renamepool">Rename</button>
           <button class="btn small" data-a="respace" title="Re-order unplayed games so teams rest between matches">Re-space games</button>
           <button class="btn small danger" data-a="delpool">Delete pool</button>
@@ -499,7 +554,7 @@ function pageAdminTournament(id) {
     function draw() {
       app.innerHTML = shell(`
         <h1>${esc(t.name)}</h1>
-        <p class="sub">View: <a href="/t/${esc(t.id)}" data-link>Scoreboard page</a> · <a href="/b/${esc(t.id)}" data-link>Bracket page</a></p>
+        <p class="sub">View: <a href="/t/${esc(t.id)}/info" data-link>Public page</a> · <a href="/t/${esc(t.id)}/playoffs" data-link>Playoffs</a></p>
         ${['localhost', '127.0.0.1'].includes(location.hostname) ? '<div class="card" style="border-color:var(--accent);margin-bottom:12px;font-size:14px"><b>Heads up:</b> you opened this as <code>localhost</code>, so copied links only work on this computer. Open the admin from your network address (printed when the server starts) before sharing links.</div>' : ''}
         <div class="actions">
           <button class="btn small" data-a="copyboard">Copy scoreboard link</button>
@@ -516,6 +571,19 @@ function pageAdminTournament(id) {
 
         <h2>Playoff brackets</h2>
         ${bracketCard()}
+
+        <h2>Event details</h2>
+        <form class="card" id="details">
+          <div class="row">
+            <div><label for="ddate">Date</label><input type="date" id="ddate" value="${esc(t.settings.date)}"></div>
+            <div><label for="dstart">First game</label><input type="time" id="dstart" value="${esc(t.settings.startTime)}"></div>
+            <div><label for="dmin">Minutes per game</label><input type="number" id="dmin" min="5" max="240" value="${t.settings.gameMinutes}"></div>
+          </div>
+          <div class="field"><label for="dloc">Location</label><input type="text" id="dloc" maxlength="120" value="${esc(t.settings.location)}" placeholder="Beach, park or gym"></div>
+          <div class="field"><label for="dnotes">Director notes (shown on the Information tab)</label><textarea id="dnotes" rows="5" maxlength="4000" placeholder="Check-in time, parking, food, rules…">${esc(t.settings.notes)}</textarea></div>
+          <div class="hint" style="margin-bottom:14px">Game times on the Games and Playoffs tabs are estimates: first game time plus minutes per game, in play order. Playoffs start after the longest pool finishes.</div>
+          <button class="btn primary" type="submit">Save details</button>
+        </form>
 
         <h2>Rules &amp; referee access</h2>
         <form class="card" id="rules">
@@ -554,7 +622,7 @@ function pageAdminTournament(id) {
       const mEl = b.closest('.amatch');
 
       if (a === 'copyboard') return copyText(`${location.origin}/t/${t.id}`);
-      if (a === 'copybracket') return copyText(`${location.origin}/b/${t.id}`);
+      if (a === 'copybracket') return copyText(`${location.origin}/t/${t.id}/playoffs`);
       if (a === 'rename') { const n = prompt('Tournament name', t.name); if (n) act('', 'PATCH', { name: n }); return; }
       if (a === 'reset') { if (confirm('Set every score back to 0-0?')) act('/reset', 'POST'); return; }
       if (a === 'deltourn') {
@@ -572,6 +640,7 @@ function pageAdminTournament(id) {
       if (a === 'clearbracket') { if (confirm('Remove both brackets and their scores? They will be rebuilt automatically when pool play is finished.')) act('/bracket', 'DELETE'); return; }
       if (a === 'addpool') return act('/pools', 'POST', {});
       if (a === 'renamepool' && pool) { const n = prompt('Pool name', pool.name); if (n) act('/pools/' + pid, 'PATCH', { name: n }); return; }
+      if (a === 'setcourt' && pool) { const n = prompt('Court for ' + pool.name + ' (for example 41 or Court 41)', pool.courtRaw || ''); if (n !== null) act('/pools/' + pid, 'PATCH', { court: n }); return; }
       if (a === 'delpool' && pool) { if (confirm(`Delete ${pool.name}, its teams and its matches?`)) act('/pools/' + pid, 'DELETE'); return; }
       if (a === 'respace' && pool) return act('/pools/' + pid + '/schedule', 'POST');
       if (a === 'renameteam' && tid) { const cur = t.teams.find((x) => x.id === tid); const n = prompt('Team name', cur.name); if (n) act('/teams/' + tid, 'PATCH', { name: n }); return; }
@@ -610,6 +679,7 @@ function pageAdminTournament(id) {
         const ta = f.querySelector('textarea');
         if (ta.value.trim()) act('/pools/' + f.dataset.pid + '/teams', 'POST', { names: ta.value.split('\n') });
       }
+      if (f.id === 'details') act('', 'PATCH', { date: $('#ddate').value, startTime: $('#dstart').value || '09:00', gameMinutes: $('#dmin').value, location: $('#dloc').value, notes: $('#dnotes').value });
       if (f.id === 'rules') act('', 'PATCH', {
         target: $('#rt').value, cap: $('#rcap').value, winByTwo: $('#rwb2').checked,
         bTarget: $('#bt').value, bCap: $('#bcap').value, bWinByTwo: $('#bwb2').checked,
