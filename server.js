@@ -161,10 +161,10 @@ function requireAdmin(req) { if (!isAdmin(req)) throw new HttpError(401, 'Wrong 
 const poolRules = (t) => ({ target: t.target, winByTwo: !!t.winByTwo, cap: t.cap || 0 });
 const bracketRules = (t) => ({ target: t.bTarget, winByTwo: !!t.bWinByTwo, cap: t.bCap || 0 });
 // Gold's first round (the games between non-bye teams) can be shorter: default one game to 15, hard cap 15.
-const g1Target = (t) => (t.g1Target === undefined ? 15 : t.g1Target);
-const g1Cap = (t) => (t.g1Cap === undefined ? 15 : t.g1Cap);
+const g1Target = (t) => (t.g1Target === undefined ? 11 : t.g1Target);
+const g1Cap = (t) => (t.g1Cap === undefined ? 11 : t.g1Cap);
 const goldFirstRules = (t) => ({ target: g1Target(t), winByTwo: !!t.bWinByTwo, cap: g1Cap(t) });
-const sCapOf = (t) => (t.sCap === undefined ? 23 : t.sCap);
+const sCapOf = (t) => (t.sCap === undefined ? 21 : t.sCap);
 const silverRules = (t) => ({ target: t.bTarget, winByTwo: !!t.bWinByTwo, cap: sCapOf(t) });
 const rulesFor = (t, m) => (!m.br ? poolRules(t) : m.br === 'silver' ? silverRules(t) : (m.br === 'gold' && m.round === 1 && g1Target(t) > 0 ? goldFirstRules(t) : bracketRules(t)));
 const rulesText = (r) => (r.cap && r.cap <= r.target) ? `One game to ${r.target}, hard cap ${r.cap}` : `First to ${r.target}${r.winByTwo ? ', win by 2' : ''}${r.cap ? `, cap ${r.cap}` : ''}`;
@@ -622,6 +622,10 @@ for (const t of db.tournaments) {
     t.matches.forEach((m) => { m.final = isFinal(poolRules(t), m); });
   }
   t.pools.forEach((p) => { if (!p.manualOrder && FIXED_ORDERS[t.teams.filter((x) => x.pool === p.id).length]) syncPool(t, p); });
+  if (t.brFmt !== 2) { // playoffs: one game to 21, hard cap 21 (Gold first round: one game to 11, hard cap 11); admin can still change it
+    t.bTarget = 21; t.bWinByTwo = false; t.bCap = 21; t.sCap = 21; t.g1Target = 11; t.g1Cap = 11; t.brFmt = 2;
+    if (t.bracket) { t.bracket.matches.forEach((m) => { if (!m.bye) m.final = isFinal(rulesFor(t, m), m); }); propagate(t); }
+  }
   maybeAutoBracket(t);
   t.pools.forEach((p) => refreshPoolRefs(t, p));
   refreshBracketRefs(t);
@@ -692,7 +696,7 @@ async function api(req, res, pathname) {
         const t = {
           id: slug(name) + '-' + hex(2), name, createdAt: new Date().toISOString(),
           target: parseTarget(body.target, DEFAULT_TARGET), winByTwo: body.winByTwo === true, cap: DEFAULT_CAP,
-          bTarget: DEFAULT_TARGET, bWinByTwo: true, bCap: 0, goldCount: DEFAULT_GOLD,
+          bTarget: DEFAULT_TARGET, bWinByTwo: false, bCap: 21, sCap: 21, g1Target: 11, g1Cap: 11, goldCount: DEFAULT_GOLD, brFmt: 2,
           refPin: String(body.refPin || '').trim().slice(0, 20),
           pools: [], teams: [], matches: [], bracket: null, poolFmt: 2,
         };

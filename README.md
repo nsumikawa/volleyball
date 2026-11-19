@@ -27,7 +27,7 @@ It prints your local address, your network address, and the admin password.
 
 **Rules**
 - Pool play: one game to 21, **hard cap 21**, no win-by-2 (21–20 is final). Pool order: wins, then point differential, then head-to-head among the tied teams, then total points scored, then the admin's team rank (drag teams, or use ▲▼, on the admin page).
-- Playoffs: first to 21, win by 2, **no cap**. All of these can be changed per tournament under "Rules".
+- Playoffs: one game to 21, **hard cap 21**, no win-by-2; the Gold first round is one game to 11, hard cap 11. All of these can be changed per tournament under "Rules".
 
 **Playoff brackets** (`/b/<tournament>`)
 - The top 3 teams of every pool go to a **Gold** bracket; everyone else (4th and 5th) goes to **Silver**.
