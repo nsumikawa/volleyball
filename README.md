@@ -82,6 +82,20 @@ The first time the server starts with no database it imports an existing `data.j
 untouched as a backup. After that `data.json` is no longer used. Older data from the first version of this app
 (a single list of players) is converted automatically into "Pool A" on first start.
 
+### Making a new database
+
+```
+./create-db.sh                      # new empty ./data.sqlite with a generated admin password (printed)
+./create-db.sh my.sqlite            # a different file
+./create-db.sh --import data.json   # start from an old data.json
+./create-db.sh --password MySecret  # choose the admin password
+./create-db.sh --force              # replace an existing one (the old file is kept as a timestamped backup)
+```
+
+It never overwrites an existing database unless you pass `--force`. Point the server at a different file with
+`DB_FILE=/path/to/my.sqlite node server.js`.
+
+
 ## Letting people join
 
 - **Same Wi-Fi / in person:** give people the "On your network" address. Open `/admin` using that
