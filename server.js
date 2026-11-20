@@ -113,8 +113,17 @@ function readBodyOnce(req) {
   });
 }
 
+// Browser hardening: no framing (clickjacking), no MIME sniffing, no referrer leaks, and only our own scripts/styles/fonts.
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'no-referrer',
+  'Content-Security-Policy': "default-src 'self'; script-src 'self'" + (process.env.DEV === '1' ? " 'unsafe-inline'" : '') +
+    "; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+};
+
 function send(res, status, obj) {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-App-Version': APP_VERSION });
+  res.writeHead(status, { ...SECURITY_HEADERS, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-App-Version': APP_VERSION });
   res.end(JSON.stringify(obj));
 }
 
@@ -952,8 +961,8 @@ function serveStatic(req, res, pathname) {
   }
   const entry = STATIC[pathname] || ['index.html', 'text/html; charset=utf-8'];
   fs.readFile(path.join(PUBLIC_DIR, entry[0]), (err, buf) => {
-    if (err) { res.writeHead(404); return res.end('Not found'); }
-    res.writeHead(200, { 'Content-Type': entry[1], 'Cache-Control': 'no-cache' });
+    if (err) { res.writeHead(404, SECURITY_HEADERS); return res.end('Not found'); }
+    res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': entry[1], 'Cache-Control': 'no-cache' });
     res.end(DEV && entry[0] === 'index.html' ? buf.toString().replace('</body>', RELOAD_SNIPPET + '</body>') : buf);
   });
 }
@@ -996,5 +1005,8 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`  On this computer:  http://localhost:${PORT}`);
   nets.forEach((n) => console.log(`  On your network:   http://${n.address}:${PORT}`));
   console.log(`\n  Admin page:        http://localhost:${PORT}/admin`);
-  console.log(`  Admin password:    ${adminPassword}${generatedPassword ? '   (generated; saved in the database — or set ADMIN_PASSWORD)' : ''}\n`);
+  // Only print the password when someone is looking at a terminal (or it was just generated);
+  // otherwise it would end up in service logs such as the systemd journal.
+  if (generatedPassword || process.stdout.isTTY) console.log(`  Admin password:    ${adminPassword}${generatedPassword ? '   (generated; saved in the database — or set ADMIN_PASSWORD)' : ''}\n`);
+  else console.log('  Admin password:    (not printed to logs; it is in the database, or set by ADMIN_PASSWORD)\n');
 });
