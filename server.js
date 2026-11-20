@@ -1,6 +1,6 @@
 'use strict';
 // Volleyball Tournament Scoreboard — zero-dependency Node server.
-// Run:  node server.js     (needs Node 18+)
+// Run:  node server.js     (needs Node 22.13+ for the built-in SQLite)
 
 const http = require('http');
 const fs = require('fs');
@@ -8,6 +8,7 @@ const path = require('path');
 const crypto = require('crypto');
 const os = require('os');
 const { orderMatches } = require('./schedule');
+const { Store, importJsonOnce } = require('./store');
 
 // Pools of four or five play in a fixed order, by team rank (1 = top-ranked team in the pool).
 const FIXED_ORDERS = {
@@ -33,7 +34,8 @@ const { arrange, roundName } = require('./bracket');
 const { assignPoolRefs } = require('./referees');
 
 const PORT = Number(process.env.PORT) || 3000;
-const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'data.json');
+const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'data.json'); // old format; imported once if the database is new
+const DB_FILE = process.env.DB_FILE || DATA_FILE.replace(/\.json$/i, '') + '.sqlite';
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
 const POOL_SIZE = 5;      // teams per pool (shown in the UI as the target)
@@ -43,18 +45,25 @@ const DEFAULT_CAP = 21;       // pool play: one game to 21, hard cap 21, no win-
 const DEFAULT_GOLD = 3;       // top N of each pool go to Gold; everyone else goes to Silver
 const APP_VERSION = '5'; // the page checks this so a stale server is reported clearly
 
-// ---------- storage ----------
+// ---------- storage (SQLite, see store.js) ----------
+let store;
+try { store = new Store(DB_FILE); } catch (e) { console.error('\n  ' + e.message + '\n'); process.exit(1); }
 let db = { config: {}, tournaments: [] };
+store.begin();
 try {
-  db = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+  const imported = importJsonOnce(store, DATA_FILE);
+  db = imported || store.load();
+  if (imported) { store.load(); console.log(`  Imported ${db.tournaments.length} tournament(s) from ${path.basename(DATA_FILE)} into ${path.basename(DB_FILE)} (the old file is left untouched as a backup).`); }
   db.config = db.config || {};
   db.tournaments = db.tournaments || [];
-} catch (e) { /* first run */ }
+  store.commit();
+} catch (e) { store.rollback(); console.error('\n  Could not open the database: ' + e.message + '\n'); process.exit(1); }
 
-function save() {
-  const tmp = DATA_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
-  fs.renameSync(tmp, DATA_FILE);
+function save() { store.write(db); }
+
+// Another process may have committed since we last looked; if so, pick up its changes.
+function syncFromDisk() {
+  if (store.changedByOthers()) { db = store.load(); db.config = db.config || {}; db.tournaments = db.tournaments || []; }
 }
 
 let adminPassword = process.env.ADMIN_PASSWORD;
@@ -83,7 +92,11 @@ class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 
-function readBody(req) {
+function readBody(req) { // read once; later callers get the same result (so the wrapper can read it before taking the write lock)
+  if (!req._bodyP) req._bodyP = readBodyOnce(req);
+  return req._bodyP;
+}
+function readBodyOnce(req) {
   return new Promise((resolve, reject) => {
     let size = 0; const chunks = [];
     req.on('data', (c) => {
@@ -949,7 +962,25 @@ function serveStatic(req, res, pathname) {
 const server = http.createServer(async (req, res) => {
   try {
     const { pathname } = new URL(req.url, 'http://localhost');
-    if (pathname.startsWith('/api/')) return await api(req, res, pathname);
+    if (pathname.startsWith('/api/')) {
+      if (req.method === 'GET' || req.method === 'HEAD') { syncFromDisk(); return await api(req, res, pathname); }
+      // Changes: read the request first (slow, network), THEN take the database write lock and do everything
+      // for this request in one quick transaction. Nothing else can write in between, in this or any other process.
+      await readBody(req).catch(() => {});
+      store.begin();
+      try {
+        syncFromDisk();
+        const out = await api(req, res, pathname);
+        save();
+        store.commit();
+        return out;
+      } catch (e) {
+        store.rollback();
+        db = store.load(); // throw away any half-finished in-memory changes
+        db.config = db.config || {}; db.tournaments = db.tournaments || [];
+        throw e;
+      }
+    }
     if (req.method !== 'GET' && req.method !== 'HEAD') throw new HttpError(405, 'Method not allowed');
     return serveStatic(req, res, pathname);
   } catch (e) {
@@ -965,5 +996,5 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`  On this computer:  http://localhost:${PORT}`);
   nets.forEach((n) => console.log(`  On your network:   http://${n.address}:${PORT}`));
   console.log(`\n  Admin page:        http://localhost:${PORT}/admin`);
-  console.log(`  Admin password:    ${adminPassword}${generatedPassword ? '   (generated; saved in data.json — or set ADMIN_PASSWORD)' : ''}\n`);
+  console.log(`  Admin password:    ${adminPassword}${generatedPassword ? '   (generated; saved in the database — or set ADMIN_PASSWORD)' : ''}\n`);
 });

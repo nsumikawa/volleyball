@@ -1,13 +1,13 @@
 # Volleyball Tournament Scoreboard
 
-A small, reusable site for running pool play. No database, no `npm install` — just Node 18+.
+A small, reusable site for running pool play. Data is kept in SQLite (built into Node 22.13+), so there is nothing to `npm install`. Check yours with `node -v`.
 
 ## Run it
 
     node server.js
 
 It prints your local address, your network address, and the admin password.
-(The password is generated on first run and saved in `data.json`. To choose your own:
+(The password is generated on first run and saved in the database. To choose your own:
 `ADMIN_PASSWORD=mypass node server.js`. Change the port with `PORT=8080`.)
 
 ## How it works
@@ -73,7 +73,13 @@ Run `./dev.sh` (same as `DEV=1 node --watch server.js`). The server restarts whe
 
 ## Your data
 
-Everything lives in `data.json`. Copy it to back up or move. Older data from the first version of this app
+Everything lives in `data.sqlite` (plus `data.sqlite-wal` / `data.sqlite-shm` while the server runs).
+It is safe for many people to score and edit at once: every change is one SQLite transaction, so two
+updates can never overwrite each other, and a crash or power cut can't leave a half-written file.
+To back up, stop the server and copy the `data.sqlite*` files (or run `sqlite3 data.sqlite ".backup copy.sqlite"`).
+
+The first time the server starts with no database it imports an existing `data.json` once and leaves that file
+untouched as a backup. After that `data.json` is no longer used. Older data from the first version of this app
 (a single list of players) is converted automatically into "Pool A" on first start.
 
 ## Letting people join

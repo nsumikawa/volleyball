@@ -1,4 +1,10 @@
 data.json
 data.json.tmp
+data.sqlite
+data.sqlite-wal
+data.sqlite-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
 node_modules/
 .DS_Store
